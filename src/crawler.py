@@ -926,6 +926,7 @@ class WebCrawler:
                 self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
                 self.seo_extractor.extract_hreflang(soup, result)
                 self.seo_extractor.extract_schema_org(soup, result)
+                self.seo_extractor.extract_body_text(response.text, result)
 
                 # Collect all links
                 links_before = len(self.link_manager.all_links)
@@ -1039,6 +1040,7 @@ class WebCrawler:
             self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
             self.seo_extractor.extract_hreflang(soup, result)
             self.seo_extractor.extract_schema_org(soup, result)
+            self.seo_extractor.extract_body_text(html_content, result)
 
             # Collect all links
             links_before = len(self.link_manager.all_links)

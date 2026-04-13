@@ -1,8 +1,11 @@
 """SEO data extraction from HTML content"""
 import re
 import json
+import copy
 import requests
+import trafilatura
 from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup, Comment
 
 
 class SEOExtractor:
@@ -48,6 +51,68 @@ class SEOExtractor:
                 content = content_type_meta.get('content', '')
                 charset_match = re.search(r'charset=([^;]+)', content)
                 result['charset'] = charset_match.group(1) if charset_match else ''
+
+    # Tags and class/id patterns to strip before content extraction
+    _BOILERPLATE_TAGS = ['nav', 'header', 'footer', 'aside', 'noscript', 'svg',
+                         'form', 'iframe', 'dialog']
+    _BOILERPLATE_PATTERNS = re.compile(
+        r'(nav|header|footer|sidebar|menu|cookie|banner|popup|modal|breadcrumb|'
+        r'social|share|widget|advertisement|ad-|ads-|advert|newsletter|signup|'
+        r'subscribe|related-posts|comment)',
+        re.IGNORECASE
+    )
+
+    @staticmethod
+    def extract_body_text(html_content, result):
+        """Extract clean main body text using pre-clean + trafilatura.
+
+        1. Pre-clean: strip nav, header, footer, aside, cookie banners, etc.
+        2. Extract with trafilatura (readability fallback built-in).
+        """
+        if not html_content:
+            result['body_text'] = ''
+            return
+
+        # Pre-clean: remove boilerplate tags from a copy of the HTML
+        try:
+            clean_soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Remove script/style (trafilatura does this too, but belt+suspenders)
+            for tag in clean_soup.find_all(['script', 'style']):
+                tag.decompose()
+
+            # Remove HTML comments
+            for comment in clean_soup.find_all(string=lambda t: isinstance(t, Comment)):
+                comment.extract()
+
+            # Remove semantic boilerplate tags
+            for tag_name in SEOExtractor._BOILERPLATE_TAGS:
+                for tag in clean_soup.find_all(tag_name):
+                    tag.decompose()
+
+            # Remove elements with boilerplate class/id names
+            for tag in clean_soup.find_all(True):
+                classes = ' '.join(tag.get('class', []))
+                tag_id = tag.get('id', '')
+                if SEOExtractor._BOILERPLATE_PATTERNS.search(classes) or \
+                   SEOExtractor._BOILERPLATE_PATTERNS.search(tag_id):
+                    tag.decompose()
+
+            cleaned_html = str(clean_soup)
+        except Exception:
+            cleaned_html = html_content
+
+        # Extract with trafilatura
+        try:
+            body = trafilatura.extract(
+                cleaned_html,
+                include_comments=False,
+                include_tables=True,
+                no_fallback=False,
+            )
+            result['body_text'] = (body or '').strip()
+        except Exception:
+            result['body_text'] = ''
 
     @staticmethod
     def extract_meta_tags(soup, result):
@@ -344,5 +409,6 @@ class SEOExtractor:
             'hreflang': [],
             'schema_org': [],
             'linked_from': [],
+            'body_text': '',
             'error': error
         }

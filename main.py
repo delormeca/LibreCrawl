@@ -1368,10 +1368,22 @@ def export_data():
 @app.route('/api/export_all', methods=['POST'])
 @login_required
 def export_all():
-    """Export ALL crawl data as a ZIP of JSON files (urls, links, issues, images)."""
+    """Export selected crawl data as a ZIP of JSON files.
+
+    Accepts options: include_urls, include_body_text, include_links,
+    include_issues, include_images.  All default to True.
+    """
     try:
         data = request.get_json() or {}
         local_data = data.get('localData', {})
+        options = data.get('options', {})
+
+        # Export flags (default all True for backwards compat)
+        inc_urls       = options.get('urls', True)
+        inc_body_text  = options.get('body_text', False)
+        inc_links      = options.get('links', True)
+        inc_issues     = options.get('issues', True)
+        inc_images     = options.get('images', True)
 
         # Use local data if provided (loaded crawl), otherwise get from crawler
         if local_data and local_data.get('urls'):
@@ -1389,7 +1401,7 @@ def export_all():
             return jsonify({'success': False, 'error': 'No data to export'})
 
         # Apply issue exclusion patterns
-        if issues:
+        if issues and inc_issues:
             settings_manager = get_session_settings()
             current_settings = settings_manager.get_settings()
             exclusion_patterns_text = current_settings.get('issueExclusionPatterns', '')
@@ -1397,74 +1409,89 @@ def export_all():
             issues = filter_issues_by_exclusion_patterns(issues, exclusion_patterns)
 
         # Update link statuses
-        if links and urls:
+        if links and urls and inc_links:
             status_lookup = {url_data['url']: url_data.get('status_code') for url_data in urls}
             for link in links:
                 target_url = link.get('target_url')
                 if target_url in status_lookup:
                     link['target_status'] = status_lookup[target_url]
 
-        # Extract flat image list from all urls
-        all_images = []
-        for url_data in urls:
-            page_url = url_data.get('url', '')
-            for img in url_data.get('images', []):
-                all_images.append({
-                    'page_url': page_url,
-                    'src': img.get('src', ''),
-                    'alt': img.get('alt', ''),
-                    'width': img.get('width', ''),
-                    'height': img.get('height', ''),
-                    'file_size': img.get('file_size', 0),
-                    'content_type': img.get('content_type', ''),
-                    'loading': img.get('loading', ''),
-                })
-
-        # All export fields for urls (everything we have)
-        all_fields = [
-            'url', 'status_code', 'content_type', 'size', 'depth',
-            'title', 'meta_description', 'h1', 'h2', 'h3',
-            'word_count', 'lang', 'charset', 'viewport', 'robots',
-            'author', 'keywords', 'generator', 'canonical_url',
-            'og_tags', 'twitter_tags', 'json_ld', 'analytics',
-            'images', 'internal_links', 'external_links',
-            'response_time', 'redirects', 'hreflang', 'schema_org',
-            'linked_from', 'meta_tags',
-        ]
-
         export_ts = time.strftime('%Y-%m-%d %H:%M:%S')
         ts_file = int(time.time())
 
-        # Build the ZIP in memory
         buf = BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # 1. Full URL data (all fields, structures intact)
-            urls_json = json.dumps({
-                'export_date': export_ts,
-                'total_urls': len(urls),
-                'fields': all_fields,
-                'data': urls
-            }, indent=2, default=str)
-            zf.writestr(f'librecrawl_urls_{ts_file}.json', urls_json)
 
-            # 2. Links
-            if links:
+            # 1. URLs (SEO data) - optionally strip body_text to keep it light
+            if inc_urls:
+                if inc_body_text:
+                    urls_export = urls
+                else:
+                    urls_export = [
+                        {k: v for k, v in u.items() if k != 'body_text'}
+                        for u in urls
+                    ]
+                urls_json = json.dumps({
+                    'export_date': export_ts,
+                    'total_urls': len(urls_export),
+                    'data': urls_export
+                }, indent=2, default=str)
+                zf.writestr(f'librecrawl_urls_{ts_file}.json', urls_json)
+
+            # 2. Body text (separate lightweight file: url + body_text only)
+            if inc_body_text:
+                content_data = []
+                for u in urls:
+                    body = u.get('body_text', '')
+                    if body:
+                        content_data.append({
+                            'url': u.get('url', ''),
+                            'title': u.get('title', ''),
+                            'h1': u.get('h1', ''),
+                            'word_count': u.get('word_count', 0),
+                            'body_text': body,
+                        })
+                if content_data:
+                    content_json = json.dumps({
+                        'export_date': export_ts,
+                        'total_pages': len(content_data),
+                        'data': content_data
+                    }, indent=2, default=str)
+                    zf.writestr(f'librecrawl_content_{ts_file}.json', content_json)
+
+            # 3. Links
+            if inc_links and links:
                 links_json = generate_links_json_export(links)
                 zf.writestr(f'librecrawl_links_{ts_file}.json', links_json)
 
-            # 3. Issues
-            if issues:
+            # 4. Issues
+            if inc_issues and issues:
                 issues_json = generate_issues_json_export(issues)
                 zf.writestr(f'librecrawl_issues_{ts_file}.json', issues_json)
 
-            # 4. Images (flat list, one row per image)
-            if all_images:
-                images_json = json.dumps({
-                    'export_date': export_ts,
-                    'total_images': len(all_images),
-                    'data': all_images
-                }, indent=2, default=str)
-                zf.writestr(f'librecrawl_images_{ts_file}.json', images_json)
+            # 5. Images (flat list, one row per image)
+            if inc_images:
+                all_images = []
+                for url_data in urls:
+                    page_url = url_data.get('url', '')
+                    for img in url_data.get('images', []):
+                        all_images.append({
+                            'page_url': page_url,
+                            'src': img.get('src', ''),
+                            'alt': img.get('alt', ''),
+                            'width': img.get('width', ''),
+                            'height': img.get('height', ''),
+                            'file_size': img.get('file_size', 0),
+                            'content_type': img.get('content_type', ''),
+                            'loading': img.get('loading', ''),
+                        })
+                if all_images:
+                    images_json = json.dumps({
+                        'export_date': export_ts,
+                        'total_images': len(all_images),
+                        'data': all_images
+                    }, indent=2, default=str)
+                    zf.writestr(f'librecrawl_images_{ts_file}.json', images_json)
 
         buf.seek(0)
         return send_file(

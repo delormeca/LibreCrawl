@@ -1002,6 +1002,40 @@
     <script src="/static/js/column-resize.js"></script>
     <script src="/static/js/visualization.js"></script>
     <script src="/static/js/plugin-loader.js"></script>
+    <!-- Export All Modal -->
+    <div id="exportAllModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:12px; padding:28px 32px; min-width:360px; max-width:420px; box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+            <h3 style="margin:0 0 6px; font-size:18px; color:#111;">Export All (JSON ZIP)</h3>
+            <p style="margin:0 0 18px; font-size:13px; color:#6b7280;">Select what to include in the export.</p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="exp-urls" checked style="width:16px; height:16px;">
+                    <span><strong>URLs &amp; SEO data</strong> - all crawled pages with metadata</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="exp-body-text" style="width:16px; height:16px;">
+                    <span><strong>Page content (body text)</strong> - extracted main content per page</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="exp-links" checked style="width:16px; height:16px;">
+                    <span><strong>Links</strong> - all internal &amp; external link relationships</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="exp-issues" checked style="width:16px; height:16px;">
+                    <span><strong>Issues</strong> - detected SEO problems</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="exp-images" checked style="width:16px; height:16px;">
+                    <span><strong>Images</strong> - per-image file size, alt text, format</span>
+                </label>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:22px; justify-content:flex-end;">
+                <button onclick="closeExportAllModal()" style="padding:8px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; cursor:pointer; font-size:14px;">Cancel</button>
+                <button onclick="runExportAll()" style="padding:8px 18px; border:none; border-radius:6px; background:#2563eb; color:#fff; cursor:pointer; font-size:14px; font-weight:600;">Export ZIP</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/app.js"></script>
     <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/settings.js"></script>

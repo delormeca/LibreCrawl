@@ -1625,9 +1625,40 @@ async function exportData() {
     }
 }
 
-async function exportAll() {
+function exportAll() {
+    // Show the export modal instead of exporting directly
+    const modal = document.getElementById('exportAllModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function closeExportAllModal() {
+    const modal = document.getElementById('exportAllModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function runExportAll() {
+    // Read checkbox states
+    const opts = {
+        urls:      document.getElementById('exp-urls').checked,
+        body_text: document.getElementById('exp-body-text').checked,
+        links:     document.getElementById('exp-links').checked,
+        issues:    document.getElementById('exp-issues').checked,
+        images:    document.getElementById('exp-images').checked,
+    };
+
+    // Must pick at least one
+    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images) {
+        showNotification('Select at least one export option', 'error');
+        return;
+    }
+
+    closeExportAllModal();
+
     try {
-        // Gather data from backend or local state
         let exportUrls = [];
         let exportLinks = [];
         let exportIssues = [];
@@ -1650,12 +1681,13 @@ async function exportAll() {
             return;
         }
 
-        showNotification('Preparing full export (ZIP)...', 'info');
+        showNotification('Preparing export (ZIP)...', 'info');
 
         const response = await fetch('/api/export_all', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                options: opts,
                 localData: {
                     urls: exportUrls,
                     links: exportLinks,
@@ -1666,7 +1698,7 @@ async function exportAll() {
 
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
-            showNotification(err.error || 'Export All failed', 'error');
+            showNotification(err.error || 'Export failed', 'error');
             return;
         }
 
@@ -1675,19 +1707,18 @@ async function exportAll() {
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = url;
-        // Extract filename from Content-Disposition or use default
         const cd = response.headers.get('Content-Disposition') || '';
         const match = cd.match(/filename=(.+)/);
-        a.download = match ? match[1] : `librecrawl_export_all.zip`;
+        a.download = match ? match[1] : 'librecrawl_export_all.zip';
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
 
-        showNotification('Full export downloaded (ZIP)', 'success');
+        showNotification('Export downloaded (ZIP)', 'success');
     } catch (error) {
         console.error('Export All error:', error);
-        showNotification('Export All failed', 'error');
+        showNotification('Export failed', 'error');
     }
 }
 
