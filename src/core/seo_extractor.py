@@ -1,6 +1,7 @@
 """SEO data extraction from HTML content"""
 import re
 import json
+import requests
 from urllib.parse import urljoin, urlparse
 
 
@@ -156,15 +157,29 @@ class SEOExtractor:
             result['analytics']['mixpanel'] = True
 
     @staticmethod
-    def extract_images(soup, base_url, result):
-        """Extract image information"""
+    def extract_images(soup, base_url, result, http_session=None):
+        """Extract image information with optional HEAD requests for file metadata"""
         images = soup.find_all('img')
+        consecutive_timeouts = 0
 
         for img in images[:20]:  # Limit to first 20 images
             src = img.get('src', '')
             alt = img.get('alt', '')
 
             if src:
+                # Skip non-HTTP sources (data: URIs, blob: URIs)
+                if src.startswith(('data:', 'blob:')):
+                    result['images'].append({
+                        'src': src[:120],  # Truncate long data URIs
+                        'alt': alt,
+                        'width': img.get('width', ''),
+                        'height': img.get('height', ''),
+                        'file_size': len(src) if src.startswith('data:') else 0,
+                        'content_type': 'inline/base64' if src.startswith('data:') else 'blob',
+                        'loading': img.get('loading', ''),
+                    })
+                    continue
+
                 # Convert relative URLs to absolute
                 if src.startswith('//'):
                     src = 'https:' + src
@@ -174,12 +189,41 @@ class SEOExtractor:
                 elif not src.startswith(('http://', 'https://')):
                     src = urljoin(base_url, src)
 
-                result['images'].append({
+                img_data = {
                     'src': src,
                     'alt': alt,
                     'width': img.get('width', ''),
-                    'height': img.get('height', '')
-                })
+                    'height': img.get('height', ''),
+                    'file_size': 0,
+                    'content_type': '',
+                    'loading': img.get('loading', ''),
+                }
+
+                # HEAD request for file size and content type
+                # Skip if 3+ consecutive timeouts on this page (CDN likely blocking)
+                if http_session and src.startswith(('http://', 'https://')) and consecutive_timeouts < 3:
+                    try:
+                        head = http_session.head(src, timeout=5, allow_redirects=True)
+
+                        # Fall back to GET with Range header if HEAD is rejected
+                        if head.status_code in (403, 405):
+                            head = http_session.get(
+                                src, timeout=5, allow_redirects=True,
+                                headers={'Range': 'bytes=0-0'},
+                                stream=True,
+                            )
+                            head.close()
+
+                        if head.status_code < 400:
+                            img_data['file_size'] = int(head.headers.get('Content-Length', 0))
+                            img_data['content_type'] = head.headers.get('Content-Type', '')
+                            consecutive_timeouts = 0
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                        consecutive_timeouts += 1
+                    except Exception:
+                        pass  # Other errors - keep image entry with zeros
+
+                result['images'].append(img_data)
 
     @staticmethod
     def extract_link_counts(soup, result, base_domain):

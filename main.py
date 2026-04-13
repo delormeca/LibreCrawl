@@ -9,9 +9,10 @@ import argparse
 import secrets
 import string
 import os
-from io import StringIO
+import zipfile
+from io import StringIO, BytesIO
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
 from flask_compress import Compress
 from functools import wraps
 from src.crawler import WebCrawler
@@ -1362,6 +1363,120 @@ def export_data():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/export_all', methods=['POST'])
+@login_required
+def export_all():
+    """Export ALL crawl data as a ZIP of JSON files (urls, links, issues, images)."""
+    try:
+        data = request.get_json() or {}
+        local_data = data.get('localData', {})
+
+        # Use local data if provided (loaded crawl), otherwise get from crawler
+        if local_data and local_data.get('urls'):
+            urls = local_data.get('urls', [])
+            links = local_data.get('links', [])
+            issues = local_data.get('issues', [])
+        else:
+            crawler = get_or_create_crawler()
+            crawl_data = crawler.get_status()
+            urls = crawl_data.get('urls', [])
+            links = crawl_data.get('links', [])
+            issues = crawl_data.get('issues', [])
+
+        if not urls:
+            return jsonify({'success': False, 'error': 'No data to export'})
+
+        # Apply issue exclusion patterns
+        if issues:
+            settings_manager = get_session_settings()
+            current_settings = settings_manager.get_settings()
+            exclusion_patterns_text = current_settings.get('issueExclusionPatterns', '')
+            exclusion_patterns = [p.strip() for p in exclusion_patterns_text.split('\n') if p.strip()]
+            issues = filter_issues_by_exclusion_patterns(issues, exclusion_patterns)
+
+        # Update link statuses
+        if links and urls:
+            status_lookup = {url_data['url']: url_data.get('status_code') for url_data in urls}
+            for link in links:
+                target_url = link.get('target_url')
+                if target_url in status_lookup:
+                    link['target_status'] = status_lookup[target_url]
+
+        # Extract flat image list from all urls
+        all_images = []
+        for url_data in urls:
+            page_url = url_data.get('url', '')
+            for img in url_data.get('images', []):
+                all_images.append({
+                    'page_url': page_url,
+                    'src': img.get('src', ''),
+                    'alt': img.get('alt', ''),
+                    'width': img.get('width', ''),
+                    'height': img.get('height', ''),
+                    'file_size': img.get('file_size', 0),
+                    'content_type': img.get('content_type', ''),
+                    'loading': img.get('loading', ''),
+                })
+
+        # All export fields for urls (everything we have)
+        all_fields = [
+            'url', 'status_code', 'content_type', 'size', 'depth',
+            'title', 'meta_description', 'h1', 'h2', 'h3',
+            'word_count', 'lang', 'charset', 'viewport', 'robots',
+            'author', 'keywords', 'generator', 'canonical_url',
+            'og_tags', 'twitter_tags', 'json_ld', 'analytics',
+            'images', 'internal_links', 'external_links',
+            'response_time', 'redirects', 'hreflang', 'schema_org',
+            'linked_from', 'meta_tags',
+        ]
+
+        export_ts = time.strftime('%Y-%m-%d %H:%M:%S')
+        ts_file = int(time.time())
+
+        # Build the ZIP in memory
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # 1. Full URL data (all fields, structures intact)
+            urls_json = json.dumps({
+                'export_date': export_ts,
+                'total_urls': len(urls),
+                'fields': all_fields,
+                'data': urls
+            }, indent=2, default=str)
+            zf.writestr(f'librecrawl_urls_{ts_file}.json', urls_json)
+
+            # 2. Links
+            if links:
+                links_json = generate_links_json_export(links)
+                zf.writestr(f'librecrawl_links_{ts_file}.json', links_json)
+
+            # 3. Issues
+            if issues:
+                issues_json = generate_issues_json_export(issues)
+                zf.writestr(f'librecrawl_issues_{ts_file}.json', issues_json)
+
+            # 4. Images (flat list, one row per image)
+            if all_images:
+                images_json = json.dumps({
+                    'export_date': export_ts,
+                    'total_images': len(all_images),
+                    'data': all_images
+                }, indent=2, default=str)
+                zf.writestr(f'librecrawl_images_{ts_file}.json', images_json)
+
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f'librecrawl_export_all_{ts_file}.zip'
+        )
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 
 def recover_crashed_crawls():
     """Check for and recover any crashed crawls on startup"""

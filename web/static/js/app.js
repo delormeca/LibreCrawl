@@ -1625,6 +1625,72 @@ async function exportData() {
     }
 }
 
+async function exportAll() {
+    try {
+        // Gather data from backend or local state
+        let exportUrls = [];
+        let exportLinks = [];
+        let exportIssues = [];
+
+        const status = await fetch('/api/crawl_status');
+        const statusData = await status.json();
+
+        if (statusData.urls && statusData.urls.length > 0) {
+            exportUrls = statusData.urls;
+            exportLinks = statusData.links || [];
+            exportIssues = statusData.issues || [];
+        } else if (crawlState.urls && crawlState.urls.length > 0) {
+            exportUrls = crawlState.urls;
+            exportLinks = crawlState.links || [];
+            exportIssues = crawlState.issues || window.currentIssues || [];
+        }
+
+        if (!exportUrls.length) {
+            showNotification('No crawl data to export', 'error');
+            return;
+        }
+
+        showNotification('Preparing full export (ZIP)...', 'info');
+
+        const response = await fetch('/api/export_all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                localData: {
+                    urls: exportUrls,
+                    links: exportLinks,
+                    issues: exportIssues
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            showNotification(err.error || 'Export All failed', 'error');
+            return;
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        // Extract filename from Content-Disposition or use default
+        const cd = response.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename=(.+)/);
+        a.download = match ? match[1] : `librecrawl_export_all.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        showNotification('Full export downloaded (ZIP)', 'success');
+    } catch (error) {
+        console.error('Export All error:', error);
+        showNotification('Export All failed', 'error');
+    }
+}
+
 // Helper function to escape HTML for safe display
 function escapeHtml(text) {
     if (!text) return text;
