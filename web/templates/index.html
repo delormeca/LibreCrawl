@@ -12,7 +12,13 @@
         <!-- Header -->
         <header class="header">
             <div class="header-content">
+                <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Menu">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+                </button>
                 <h1 class="app-title">LibreCrawl</h1>
+                <button class="mobile-sidebar-btn" onclick="toggleMobileSidebar()" aria-label="Filters">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 4h18v2H3V4zm3 7h12v2H6v-2zm3 7h6v2H9v-2z"/></svg>
+                </button>
                 <div class="header-actions">
                     <span id="userInfo" style="margin-right: 15px; color: #6b7280; font-size: 14px;"></span>
                     <button class="btn btn-secondary" onclick="openDashboard()">Dashboard</button>
@@ -70,8 +76,10 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <!-- Sidebar overlay for mobile -->
+            <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileSidebar()"></div>
             <!-- Sidebar -->
-            <aside class="sidebar">
+            <aside class="sidebar" id="sidebar">
                 <div class="sidebar-section">
                     <h3 class="sidebar-title">Filters</h3>
                     <div class="filter-tree">
@@ -1039,5 +1047,14 @@
     <script src="/static/js/app.js"></script>
     <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/settings.js"></script>
+    <script>
+    function toggleMobileMenu() {
+        document.querySelector('.header-actions').classList.toggle('mobile-open');
+    }
+    function toggleMobileSidebar() {
+        document.getElementById('sidebar').classList.toggle('mobile-open');
+        document.getElementById('sidebarOverlay').classList.toggle('mobile-open');
+    }
+    </script>
 </body>
 </html>

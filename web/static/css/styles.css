@@ -745,44 +745,323 @@ body {
     gap: 12px;
 }
 
+/* Mobile toggle buttons — hidden on desktop */
+.mobile-menu-btn,
+.mobile-sidebar-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: #e2e8f0;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.mobile-menu-btn:hover,
+.mobile-sidebar-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
-    .sidebar {
-        width: 240px;
+    /* Mobile toggle buttons */
+    .mobile-menu-btn,
+    .mobile-sidebar-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Header — compact */
+    .header {
+        padding: 10px 16px;
+    }
+
+    .header-content {
+        gap: 8px;
+    }
+
+    .app-title {
+        font-size: 16px;
+        flex: 1;
+    }
+
+    .app-title::after {
+        display: none;
+    }
+
+    /* Header actions — slide-down menu */
+    .header-actions {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: rgba(30, 35, 15, 0.98);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid #4a5a20;
+        padding: 12px 16px;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 200;
+    }
+
+    .header-actions.mobile-open {
+        display: flex;
+    }
+
+    .header-actions #userInfo {
+        margin-right: 0 !important;
+        text-align: center;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header-actions .btn {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+    }
+
+    .header {
+        position: relative;
+    }
+
+    /* URL section — stacked */
+    .url-section {
+        padding: 12px 16px;
     }
 
     .url-container {
         flex-direction: column;
         align-items: stretch;
-        gap: 12px;
+        gap: 10px;
+    }
+
+    .url-input {
+        padding: 12px 14px;
+        font-size: 14px;
+    }
+
+    .input-label::after {
+        display: none;
     }
 
     .control-buttons {
-        justify-content: stretch;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
     }
 
     .control-buttons .btn {
-        flex: 1;
-        min-width: 100px;
+        padding: 10px 8px;
+        font-size: 13px;
+        justify-content: center;
     }
 
+    .progress-container {
+        margin-top: 10px;
+    }
+
+    .progress-text {
+        font-size: 12px;
+        min-width: auto;
+    }
+
+    /* Main content — stacked vertically */
+    .main-content {
+        flex-direction: column;
+    }
+
+    /* Sidebar — slide-out drawer */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 280px;
+        z-index: 300;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        overflow-y: auto;
+        padding: 20px 16px;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 299;
+    }
+
+    .sidebar-overlay.mobile-open {
+        display: block;
+    }
+
+    /* Tabs — scrollable horizontal */
+    .tab-header {
+        padding: 0 8px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .tab-btn {
+        padding: 10px 14px;
+        font-size: 12px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Tables — horizontal scroll */
+    .table-container {
+        padding: 10px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table {
+        min-width: 600px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+
+    /* Content area fills available space */
+    .content-area {
+        min-height: 50vh;
+    }
+
+    /* Modals — full screen on mobile */
     .modal-content {
-        width: 95%;
-        max-height: 95vh;
+        width: 100%;
+        max-width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+        height: 100vh;
     }
 
+    .modal-body {
+        max-height: calc(100vh - 140px);
+    }
+
+    .details-modal {
+        width: 100%;
+        max-width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    /* Settings tabs — scrollable */
     .settings-tabs {
-        flex-wrap: wrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
     }
 
     .settings-tab-btn {
-        flex: 1;
-        min-width: 120px;
+        flex-shrink: 0;
+        padding: 12px 16px;
+        font-size: 13px;
+    }
+
+    .settings-tab-content {
+        padding: 16px;
     }
 
     .checkbox-grid {
         grid-template-columns: 1fr;
+    }
+
+    /* Links tab */
+    .links-tab-scroll-container {
+        padding: 10px;
+    }
+
+    .links-section {
+        max-height: none;
+    }
+
+    .links-section .data-table {
+        min-width: 500px;
+    }
+
+    /* PageSpeed — stacked */
+    .pagespeed-container {
+        padding: 12px;
+    }
+
+    .pagespeed-results-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pagespeed-page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    /* Visualization — full width */
+    .visualization-container {
+        padding: 12px;
+    }
+
+    .visualization-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .visualization-controls {
+        width: 100%;
+    }
+
+    .visualization-controls select {
+        flex: 1;
+    }
+
+    .graph-container {
+        min-height: 300px;
+    }
+
+    .visualization-legend {
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: flex-start;
+    }
+
+    /* Status bar */
+    .status-bar {
+        padding: 8px 16px;
+        font-size: 12px;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    /* Body — allow scroll on mobile */
+    body {
+        overflow: auto;
+    }
+
+    .app-container {
+        height: auto;
+        min-height: 100vh;
+    }
+
+    /* Issues tab filter buttons */
+    .tab-pane [style*="display: flex"][style*="gap"] {
+        flex-wrap: wrap;
     }
 }
 

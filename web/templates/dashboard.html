@@ -248,6 +248,19 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        @media (max-width: 768px) {
+            .container { padding: 20px 12px; }
+            .header { flex-direction: column; gap: 12px; align-items: flex-start; margin-bottom: 24px; }
+            .header h1 { font-size: 24px; }
+            .stats-grid { grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+            .stat-card { padding: 16px; }
+            .stat-value { font-size: 24px; }
+            .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            table { min-width: 600px; }
+            th, td { padding: 10px; font-size: 13px; }
+            .actions { flex-wrap: wrap; }
+        }
     </style>
 </head>
 <body>
