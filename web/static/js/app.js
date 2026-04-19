@@ -1845,7 +1845,7 @@ function showUrlDetails(url) {
                                 <ul style="list-style: none; padding: 0; margin: 10px 0;">
                                     ${urlData.linked_from.slice(0, 20).map(sourceUrl => {
                                         const escapedUrl = escapeHtml(sourceUrl);
-                                        return `<li style="padding: 5px 0; word-break: break-all;"><a href="${escapedUrl}" target="_blank" style="color: #8b5cf6; text-decoration: none;">${escapedUrl}</a></li>`;
+                                        return `<li style="padding: 5px 0; word-break: break-all;"><a href="${escapedUrl}" target="_blank" style="color: #8a9a5c; text-decoration: none;">${escapedUrl}</a></li>`;
                                     }).join('')}
                                     ${urlData.linked_from.length > 20 ? `<li style="padding: 5px 0; font-style: italic; color: #9ca3af;">... and ${urlData.linked_from.length - 20} more</li>` : ''}
                                 </ul>

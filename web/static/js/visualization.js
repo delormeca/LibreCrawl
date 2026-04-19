@@ -55,7 +55,7 @@ function initVisualization() {
             {
                 selector: 'node:selected',
                 style: {
-                    'border-color': '#8b5cf6',
+                    'border-color': '#6a7a40',
                     'border-width': 3,
                     'overlay-opacity': 0
                 }
@@ -75,8 +75,8 @@ function initVisualization() {
             {
                 selector: 'edge:selected',
                 style: {
-                    'line-color': '#8b5cf6',
-                    'target-arrow-color': '#8b5cf6',
+                    'line-color': '#6a7a40',
+                    'target-arrow-color': '#6a7a40',
                     'width': 3,
                     'opacity': 1
                 }
@@ -361,7 +361,7 @@ function exportVisualizationImage() {
 
     const png = cy.png({
         output: 'blob',
-        bg: '#1a1d29',
+        bg: '#1a1f0e',
         full: true,
         scale: 2
     });

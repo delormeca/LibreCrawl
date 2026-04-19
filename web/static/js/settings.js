@@ -809,7 +809,7 @@ function showNotification(message, type = 'info') {
             notification.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
             break;
         default:
-            notification.style.background = 'linear-gradient(135deg, #8b5cf6, #7c3aed)';
+            notification.style.background = 'linear-gradient(135deg, #6a7a40, #5a6a30)';
     }
 
     // Add to page

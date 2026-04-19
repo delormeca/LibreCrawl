@@ -621,7 +621,7 @@
                         <input type="password" id="googleApiKey" placeholder="Enter your Google PageSpeed Insights API key">
                         <span class="setting-help">
                             API key for higher rate limits (25k requests/day vs limited without key).
-                            <a href="https://developers.google.com/speed/docs/insights/v5/get-started" target="_blank" style="color: #8b5cf6;">Get API key here</a>
+                            <a href="https://developers.google.com/speed/docs/insights/v5/get-started" target="_blank" style="color: #6a7a40;">Get API key here</a>
                         </span>
                     </div>
                 </div>
@@ -900,7 +900,7 @@
                         <label for="customCSS">Custom CSS Code</label>
                         <textarea id="customCSS" rows="20" placeholder="/* Write your custom CSS here */
 /* Example: */
-/* .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); } */
+/* .header { background: linear-gradient(135deg, #4a5a20 0%, #303815 100%); } */
 /* .data-table th { background-color: #4f46e5; } */
 /* .btn-primary { background: #10b981; } */"></textarea>
                         <span class="setting-help">Enter valid CSS rules to customize the interface appearance</span>
@@ -923,7 +923,7 @@
                             <strong>🎨 Example Customizations:</strong><br><br>
                             <code style="display: block; background: #1f2937; padding: 10px; border-radius: 4px; margin: 8px 0; font-size: 13px; color: #e5e7eb;">
                             /* Dark purple header */<br>
-                            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }<br><br>
+                            .header { background: linear-gradient(135deg, #4a5a20 0%, #303815 100%); }<br><br>
                             /* Green accent buttons */<br>
                             .btn-primary { background: #10b981; }<br><br>
                             /* Larger table text */<br>
@@ -1008,30 +1008,30 @@
             <h3 style="margin:0 0 6px; font-size:18px; color:#111;">Export All (JSON ZIP)</h3>
             <p style="margin:0 0 18px; font-size:13px; color:#6b7280;">Select what to include in the export.</p>
             <div style="display:flex; flex-direction:column; gap:10px;">
-                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-urls" checked style="width:16px; height:16px;">
-                    <span><strong>URLs &amp; SEO data</strong> - all crawled pages with metadata</span>
+                    <span><strong>URLs &amp; SEO data</strong> – all crawled pages with metadata</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-body-text" style="width:16px; height:16px;">
-                    <span><strong>Page content (body text)</strong> - extracted main content per page</span>
+                    <span><strong>Page content (body text)</strong> – extracted main content per page</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-links" checked style="width:16px; height:16px;">
-                    <span><strong>Links</strong> - all internal &amp; external link relationships</span>
+                    <span><strong>Links</strong> – all internal &amp; external link relationships</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-issues" checked style="width:16px; height:16px;">
-                    <span><strong>Issues</strong> - detected SEO problems</span>
+                    <span><strong>Issues</strong> – detected SEO problems</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-images" checked style="width:16px; height:16px;">
-                    <span><strong>Images</strong> - per-image file size, alt text, format</span>
+                    <span><strong>Images</strong> – per-image file size, alt text, format</span>
                 </label>
             </div>
             <div style="display:flex; gap:10px; margin-top:22px; justify-content:flex-end;">
                 <button onclick="closeExportAllModal()" style="padding:8px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; cursor:pointer; font-size:14px;">Cancel</button>
-                <button onclick="runExportAll()" style="padding:8px 18px; border:none; border-radius:6px; background:#2563eb; color:#fff; cursor:pointer; font-size:14px; font-weight:600;">Export ZIP</button>
+                <button onclick="runExportAll()" style="padding:8px 18px; border:none; border-radius:6px; background:#5a6a30; color:#fff; cursor:pointer; font-size:14px; font-weight:600;">Export ZIP</button>
             </div>
         </div>
     </div>
