@@ -2403,7 +2403,8 @@ function toggleContentVectorizationMode(enabled) {
             el.closest('.setting-group')?.classList.toggle('disabled-setting', enabled);
         }
     });
-    document.getElementById('cvModeWarning').style.display = enabled ? 'block' : 'none';
+
+    document.getElementById('cvApiKeyGroup').style.display = enabled ? 'block' : 'none';
 
     // Check max URLs for scale warning
     const maxUrls = parseInt(document.getElementById('maxUrls')?.value || '0');
@@ -2411,15 +2412,45 @@ function toggleContentVectorizationMode(enabled) {
 
     // Validate API key server-side
     if (enabled) {
-        fetch('/api/check_openai_key')
-            .then(r => r.json())
-            .then(data => {
-                if (!data.valid) {
-                    document.getElementById('cvModeWarning').textContent = data.error || 'OPENAI_API_KEY not configured';
-                    document.getElementById('cvModeWarning').style.borderColor = 'rgba(239,68,68,0.3)';
-                    document.getElementById('cvModeWarning').style.background = 'rgba(239,68,68,0.15)';
-                    document.getElementById('cvModeWarning').style.color = '#ef4444';
-                }
-            });
+        checkOpenAIKey();
+    } else {
+        document.getElementById('cvModeWarning').style.display = 'none';
     }
+}
+
+function checkOpenAIKey() {
+    const warning = document.getElementById('cvModeWarning');
+    fetch('/api/check_openai_key')
+        .then(r => r.json())
+        .then(data => {
+            if (data.valid) {
+                warning.textContent = 'API key verified.';
+                warning.style.borderColor = 'rgba(106,122,64,0.3)';
+                warning.style.background = 'rgba(106,122,64,0.15)';
+                warning.style.color = '#c8d9a0';
+            } else {
+                warning.textContent = data.error || 'No API key configured. Enter one above.';
+                warning.style.borderColor = 'rgba(239,68,68,0.3)';
+                warning.style.background = 'rgba(239,68,68,0.15)';
+                warning.style.color = '#ef4444';
+            }
+            warning.style.display = 'block';
+        });
+}
+
+function saveOpenAIKey() {
+    const key = document.getElementById('openaiApiKey').value.trim();
+    fetch('/api/set_openai_key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key })
+    })
+    .then(r => r.json())
+    .then(() => {
+        checkOpenAIKey();
+        if (key) {
+            document.getElementById('openaiApiKey').value = '';
+            document.getElementById('openaiApiKey').placeholder = 'sk-...saved';
+        }
+    });
 }

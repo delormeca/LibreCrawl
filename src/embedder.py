@@ -17,11 +17,12 @@ BATCH_SIZE = 100
 MAX_RETRIES = 3
 
 
-def validate_api_key():
+def validate_api_key(api_key=None):
     """Check that OPENAI_API_KEY is set and valid. Returns (ok, error_message)."""
-    api_key = os.environ.get('OPENAI_API_KEY', '').strip()
     if not api_key:
-        return False, 'OPENAI_API_KEY environment variable is not set'
+        api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+    if not api_key:
+        return False, 'No OpenAI API key provided'
     try:
         client = OpenAI(api_key=api_key)
         client.embeddings.create(input='test', model=EMBEDDING_MODEL, dimensions=EMBEDDING_DIMENSIONS)
@@ -57,17 +58,19 @@ def bytes_to_embedding(blob):
     return list(struct.unpack(f'{count}f', blob))
 
 
-def embed_pages(pages, progress_callback=None):
+def embed_pages(pages, progress_callback=None, api_key=None):
     """Generate embeddings for a list of pages.
 
     Args:
         pages: List of dicts with keys: url, title, h1, meta_description, body_text, internal_links_out
         progress_callback: Optional callable(current, total, failed) for progress reporting
+        api_key: Optional OpenAI API key (falls back to OPENAI_API_KEY env var)
 
     Returns:
         List of dicts ready for save_embeddings_batch(), plus summary stats.
     """
-    api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+    if not api_key:
+        api_key = os.environ.get('OPENAI_API_KEY', '').strip()
     client = OpenAI(api_key=api_key)
 
     results = []

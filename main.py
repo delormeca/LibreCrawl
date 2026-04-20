@@ -53,6 +53,9 @@ init_db()
 # Embedding progress state
 embed_progress = {'current': 0, 'total': 0, 'failed': 0, 'status': 'idle'}
 
+# User-provided OpenAI API key (overrides env var when set)
+user_openai_key = None
+
 def generate_random_password(length=16):
     """Generate a random password with letters, digits, and symbols"""
     alphabet = string.ascii_letters + string.digits + string.punctuation
@@ -702,6 +705,7 @@ def start_crawl():
         import threading as _threading
 
         cid = crawler.crawl_id
+        embed_api_key = user_openai_key  # capture at request time
 
         def run_embedding_after_crawl(crawler_instance, crawl_id):
             global embed_progress
@@ -732,7 +736,7 @@ def start_crawl():
             def progress_cb(current, total, failed):
                 embed_progress.update({'current': current, 'total': total, 'failed': failed, 'status': 'embedding'})
 
-            results, stats = embed_pages(pages, progress_callback=progress_cb)
+            results, stats = embed_pages(pages, progress_callback=progress_cb, api_key=embed_api_key)
 
             if results:
                 save_embeddings_batch(crawl_id, results)
@@ -797,11 +801,26 @@ def embed_status():
     return jsonify(embed_progress)
 
 
+@app.route('/api/set_openai_key', methods=['POST'])
+@login_required
+def set_openai_key():
+    global user_openai_key
+    data = request.get_json() or {}
+    key = data.get('key', '').strip()
+    if key:
+        user_openai_key = key
+        return jsonify({'success': True})
+    else:
+        user_openai_key = None
+        return jsonify({'success': True, 'cleared': True})
+
+
 @app.route('/api/check_openai_key')
 @login_required
 def check_openai_key():
     from src.embedder import validate_api_key
-    ok, error = validate_api_key()
+    key = user_openai_key or None
+    ok, error = validate_api_key(api_key=key)
     return jsonify({'valid': ok, 'error': error})
 
 

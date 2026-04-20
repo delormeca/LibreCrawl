@@ -536,8 +536,15 @@
                             Content Vectorization Mode
                         </label>
                         <span class="setting-help">Extracts page content and generates embeddings. Faster than full crawl — skips SEO analysis.</span>
+                        <div id="cvApiKeyGroup" style="display:none; margin-top:10px;">
+                            <label for="openaiApiKey" style="font-size:13px; color:#9ca3af;">OpenAI API Key</label>
+                            <div style="display:flex; gap:8px; margin-top:4px;">
+                                <input type="password" id="openaiApiKey" placeholder="sk-..." style="flex:1; padding:6px 10px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:#e5e7eb; font-size:13px; font-family:monospace;">
+                                <button onclick="saveOpenAIKey()" style="padding:6px 14px; border:none; border-radius:6px; background:#5a6a30; color:#fff; cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap;">Save Key</button>
+                            </div>
+                        </div>
                         <div id="cvModeWarning" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(106,122,64,0.15); border:1px solid rgba(106,122,64,0.3); border-radius:6px; font-size:12px; color:#c8d9a0;">
-                            Requires OPENAI_API_KEY configured on the server.
+                            Checking API key...
                         </div>
                         <div id="cvScaleWarning" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); border-radius:6px; font-size:12px; color:#fbbf24;">
                             Content vectorization is optimized for up to 5,000 pages. Larger crawls may use significant storage.
