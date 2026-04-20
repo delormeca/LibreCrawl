@@ -198,6 +198,7 @@
                         <button class="tab-btn" onclick="switchTab('issues')">Issues</button>
                         <button class="tab-btn" onclick="switchTab('pagespeed')">PageSpeed</button>
                         <button class="tab-btn" onclick="switchTab('visualization')">Visualization</button>
+                        <button class="tab-btn" id="embeddingsTabBtn" onclick="switchTab('embeddings')" style="display:none;">Embeddings</button>
                     </div>
 
                     <div class="tab-content">
@@ -477,6 +478,28 @@
                                         <span class="legend-color" style="background: #6b7280;"></span>
                                         <span>Other</span>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="embeddings-tab" class="tab-pane">
+                            <div class="table-container">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                                    <h3 style="margin:0; font-size:16px; color:#e5e7eb;">Embedded Pages</h3>
+                                    <span id="embeddingsCount" style="font-size:13px; color:#9ca3af;"></span>
+                                </div>
+                                <table class="data-table" id="embeddingsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>URL</th>
+                                            <th>Title</th>
+                                            <th>Tokens</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                                <div id="embeddingsEmpty" style="text-align:center; padding:40px; color:#6b7280;">
+                                    <p>No embeddings yet. Enable Content Vectorization Mode and run a crawl.</p>
                                 </div>
                             </div>
                         </div>

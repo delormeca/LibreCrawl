@@ -798,7 +798,34 @@ def crawl_status():
 @app.route('/api/embed_status')
 @login_required
 def embed_status():
+    # If in-memory status is idle, check DB for existing embeddings
+    if embed_progress.get('status') == 'idle':
+        crawl_id = session.get('current_crawl_id')
+        if crawl_id:
+            from src.crawl_db import get_embedding_count
+            count = get_embedding_count(crawl_id)
+            if count > 0:
+                return jsonify({'current': count, 'total': count, 'failed': 0, 'status': 'done'})
     return jsonify(embed_progress)
+
+
+@app.route('/api/embeddings_list')
+@login_required
+def embeddings_list():
+    """Return list of embedded pages for the current crawl."""
+    crawl_id = session.get('current_crawl_id')
+    if not crawl_id:
+        return jsonify({'pages': [], 'total': 0})
+    from src.crawl_db import get_embeddings_for_crawl
+    rows = get_embeddings_for_crawl(crawl_id)
+    pages = []
+    for row in rows:
+        pages.append({
+            'url': row[0],
+            'title': row[1],
+            'token_count': row[5],
+        })
+    return jsonify({'pages': pages, 'total': len(pages)})
 
 
 @app.route('/api/set_openai_key', methods=['POST'])

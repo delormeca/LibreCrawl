@@ -59,6 +59,9 @@ async function initializeApp() {
     // Load user info
     loadUserInfo();
 
+    // Check if embeddings exist from a previous crawl
+    checkEmbeddingsExist();
+
     // DEBUG: Check sessionStorage
     console.log('DEBUG: Checking sessionStorage force_ui_refresh:', sessionStorage.getItem('force_ui_refresh'));
 
@@ -469,6 +472,49 @@ function pollEmbeddingProgress() {
                     : `Embedding complete. ${data.current} pages embedded.`;
                 document.getElementById('progressText').textContent = msg;
                 updateStatus(msg);
+                showEmbeddingsTab();
+                loadEmbeddingsList();
+            }
+        });
+}
+
+function showEmbeddingsTab() {
+    const btn = document.getElementById('embeddingsTabBtn');
+    if (btn) btn.style.display = '';
+}
+
+function loadEmbeddingsList() {
+    fetch('/api/embeddings_list')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.querySelector('#embeddingsTable tbody');
+            const empty = document.getElementById('embeddingsEmpty');
+            const count = document.getElementById('embeddingsCount');
+            if (!data.pages || data.pages.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                count.textContent = '';
+                return;
+            }
+            empty.style.display = 'none';
+            count.textContent = `${data.total} pages embedded`;
+            tbody.innerHTML = data.pages.map(p => `
+                <tr>
+                    <td style="word-break:break-all; max-width:400px;" title="${p.url}">${p.url}</td>
+                    <td>${p.title || ''}</td>
+                    <td>${p.token_count || 0}</td>
+                </tr>
+            `).join('');
+        });
+}
+
+function checkEmbeddingsExist() {
+    fetch('/api/embed_status')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'done' && data.current > 0) {
+                showEmbeddingsTab();
+                loadEmbeddingsList();
             }
         });
 }
