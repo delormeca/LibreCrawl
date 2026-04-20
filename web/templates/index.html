@@ -530,6 +530,20 @@
                 <div id="crawler-settings" class="settings-tab-content active">
                     <h3>Crawler Configuration</h3>
 
+                    <div class="setting-group" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="contentVectorizationMode" onchange="toggleContentVectorizationMode(this.checked)">
+                            Content Vectorization Mode
+                        </label>
+                        <span class="setting-help">Extracts page content and generates embeddings. Faster than full crawl — skips SEO analysis.</span>
+                        <div id="cvModeWarning" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(106,122,64,0.15); border:1px solid rgba(106,122,64,0.3); border-radius:6px; font-size:12px; color:#c8d9a0;">
+                            Requires OPENAI_API_KEY configured on the server.
+                        </div>
+                        <div id="cvScaleWarning" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); border-radius:6px; font-size:12px; color:#fbbf24;">
+                            Content vectorization is optimized for up to 5,000 pages. Larger crawls may use significant storage.
+                        </div>
+                    </div>
+
                     <div class="setting-group">
                         <label for="maxDepth">Maximum Crawl Depth</label>
                         <input type="number" id="maxDepth" value="3" min="1" max="10">
@@ -1036,6 +1050,10 @@
                 <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-images" checked style="width:16px; height:16px;">
                     <span><strong>Images</strong> – per-image file size, alt text, format</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
+                    <input type="checkbox" id="exp-embeddings" disabled style="width:16px; height:16px;">
+                    <span><strong>Embeddings</strong> – page vectors and content</span>
                 </label>
             </div>
             <div style="display:flex; gap:10px; margin-top:22px; justify-content:flex-end;">

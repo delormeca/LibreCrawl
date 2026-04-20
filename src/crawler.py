@@ -2,6 +2,7 @@
 Main web crawler orchestrator with smooth rate limiting and modular architecture.
 Refactored for better code practices and maintainability.
 """
+import json
 import requests
 import threading
 import time
@@ -64,6 +65,7 @@ class WebCrawler:
 
         # Configuration
         self.config = self._get_default_config()
+        self.content_vectorization_mode = False
 
         # Statistics
         self.stats = {
@@ -681,6 +683,12 @@ class WebCrawler:
             else:
                 self.rate_limiter.update_rate(100.0)
 
+    def set_content_vectorization_mode(self, enabled):
+        """Enable or disable content vectorization mode.
+        Skips SEO analysis, only extracts content + internal links."""
+        self.content_vectorization_mode = enabled
+        self.config['content_vectorization_mode'] = enabled
+
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
         # Use async approach if JavaScript rendering is enabled
@@ -738,17 +746,18 @@ class WebCrawler:
                                     # Track per-user memory
                                     self.user_memory.track_url(result)
 
-                                    # Detect issues
-                                    issues_before = len(self.issue_detector.detected_issues)
-                                    self.issue_detector.detect_issues(result)
-                                    issues_after = len(self.issue_detector.detected_issues)
+                                    # Detect issues (skip in content vectorization mode)
+                                    if not self.content_vectorization_mode:
+                                        issues_before = len(self.issue_detector.detected_issues)
+                                        self.issue_detector.detect_issues(result)
+                                        issues_after = len(self.issue_detector.detected_issues)
 
-                                    # Track + batch new issues
-                                    if issues_after > issues_before:
-                                        new_issues = self.issue_detector.detected_issues[issues_before:issues_after]
-                                        self.user_memory.track_issues(new_issues)
-                                        if self.db_save_enabled:
-                                            self.unsaved_issues.extend(new_issues)
+                                        # Track + batch new issues
+                                        if issues_after > issues_before:
+                                            new_issues = self.issue_detector.detected_issues[issues_before:issues_after]
+                                            self.user_memory.track_issues(new_issues)
+                                            if self.db_save_enabled:
+                                                self.unsaved_issues.extend(new_issues)
                             except Exception as e:
                                 print(f"Error in crawl task: {e}")
 
@@ -916,17 +925,46 @@ class WebCrawler:
                 soup = BeautifulSoup(response.content, 'html.parser')
 
                 # Extract comprehensive data using SEO extractor
-                self.seo_extractor.extract_basic_seo_data(soup, result)
-                self.seo_extractor.extract_meta_tags(soup, result)
-                self.seo_extractor.extract_opengraph_tags(soup, result)
-                self.seo_extractor.extract_twitter_tags(soup, result)
-                self.seo_extractor.extract_json_ld(soup, result)
-                self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
-                self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-                self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-                self.seo_extractor.extract_hreflang(soup, result)
-                self.seo_extractor.extract_schema_org(soup, result)
+                if not self.content_vectorization_mode:
+                    self.seo_extractor.extract_basic_seo_data(soup, result)
+                    self.seo_extractor.extract_meta_tags(soup, result)
+                    self.seo_extractor.extract_opengraph_tags(soup, result)
+                    self.seo_extractor.extract_twitter_tags(soup, result)
+                    self.seo_extractor.extract_json_ld(soup, result)
+                    self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
+                    self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                    self.seo_extractor.extract_hreflang(soup, result)
+                    self.seo_extractor.extract_schema_org(soup, result)
+                else:
+                    # Content vectorization: only extract basic title/h1/meta + body text
+                    self.seo_extractor.extract_basic_seo_data(soup, result)
+
+                # Always extract body text (both modes need it)
                 self.seo_extractor.extract_body_text(response.text, result)
+
+                if self.content_vectorization_mode:
+                    # Extract internal outbound links with anchor text and placement
+                    internal_links = []
+                    seen_urls = set()
+                    for a_tag in soup.find_all('a', href=True):
+                        href = urljoin(url, a_tag['href'])
+                        parsed = urlparse(href)
+                        if parsed.netloc and self.base_domain in parsed.netloc:
+                            clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                            if clean_url not in seen_urls:
+                                seen_urls.add(clean_url)
+                                placement = 'body'
+                                for parent in a_tag.parents:
+                                    if parent.name in ('nav', 'header', 'footer'):
+                                        placement = parent.name
+                                        break
+                                internal_links.append({
+                                    'url': clean_url,
+                                    'anchor': a_tag.get_text(strip=True),
+                                    'placement': placement,
+                                })
+                    result['internal_links_out'] = json.dumps(internal_links)
 
                 # Collect all links
                 links_before = len(self.link_manager.all_links)
@@ -937,7 +975,7 @@ class WebCrawler:
                 if links_after > links_before:
                     new_links = self.link_manager.all_links[links_before:links_after]
                     self.user_memory.track_links(new_links)
-                    if self.db_save_enabled:
+                    if self.db_save_enabled and not self.content_vectorization_mode:
                         self.unsaved_links.extend(new_links)
 
                 # Extract links for further crawling
@@ -1030,17 +1068,44 @@ class WebCrawler:
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # Extract comprehensive data
-            self.seo_extractor.extract_basic_seo_data(soup, result)
-            self.seo_extractor.extract_meta_tags(soup, result)
-            self.seo_extractor.extract_opengraph_tags(soup, result)
-            self.seo_extractor.extract_twitter_tags(soup, result)
-            self.seo_extractor.extract_json_ld(soup, result)
-            self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
-            self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-            self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-            self.seo_extractor.extract_hreflang(soup, result)
-            self.seo_extractor.extract_schema_org(soup, result)
+            if not self.content_vectorization_mode:
+                self.seo_extractor.extract_basic_seo_data(soup, result)
+                self.seo_extractor.extract_meta_tags(soup, result)
+                self.seo_extractor.extract_opengraph_tags(soup, result)
+                self.seo_extractor.extract_twitter_tags(soup, result)
+                self.seo_extractor.extract_json_ld(soup, result)
+                self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
+                self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                self.seo_extractor.extract_hreflang(soup, result)
+                self.seo_extractor.extract_schema_org(soup, result)
+            else:
+                self.seo_extractor.extract_basic_seo_data(soup, result)
+
+            # Always extract body text (both modes need it)
             self.seo_extractor.extract_body_text(html_content, result)
+
+            if self.content_vectorization_mode:
+                internal_links = []
+                seen_urls = set()
+                for a_tag in soup.find_all('a', href=True):
+                    href = urljoin(url, a_tag['href'])
+                    parsed = urlparse(href)
+                    if parsed.netloc and self.base_domain in parsed.netloc:
+                        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                        if clean_url not in seen_urls:
+                            seen_urls.add(clean_url)
+                            placement = 'body'
+                            for parent in a_tag.parents:
+                                if parent.name in ('nav', 'header', 'footer'):
+                                    placement = parent.name
+                                    break
+                            internal_links.append({
+                                'url': clean_url,
+                                'anchor': a_tag.get_text(strip=True),
+                                'placement': placement,
+                            })
+                result['internal_links_out'] = json.dumps(internal_links)
 
             # Collect all links
             links_before = len(self.link_manager.all_links)
@@ -1051,7 +1116,7 @@ class WebCrawler:
             if links_after > links_before:
                 new_links = self.link_manager.all_links[links_before:links_after]
                 self.user_memory.track_links(new_links)
-                if self.db_save_enabled:
+                if self.db_save_enabled and not self.content_vectorization_mode:
                     self.unsaved_links.extend(new_links)
 
             # Extract links for further crawling
@@ -1128,17 +1193,18 @@ class WebCrawler:
                                 # Track per-user memory
                                 self.user_memory.track_url(result)
 
-                                # Detect issues
-                                issues_before = len(self.issue_detector.detected_issues)
-                                self.issue_detector.detect_issues(result)
-                                issues_after = len(self.issue_detector.detected_issues)
+                                # Detect issues (skip in content vectorization mode)
+                                if not self.content_vectorization_mode:
+                                    issues_before = len(self.issue_detector.detected_issues)
+                                    self.issue_detector.detect_issues(result)
+                                    issues_after = len(self.issue_detector.detected_issues)
 
-                                # Track + batch new issues
-                                if issues_after > issues_before:
-                                    new_issues = self.issue_detector.detected_issues[issues_before:issues_after]
-                                    self.user_memory.track_issues(new_issues)
-                                    if self.db_save_enabled:
-                                        self.unsaved_issues.extend(new_issues)
+                                    # Track + batch new issues
+                                    if issues_after > issues_before:
+                                        new_issues = self.issue_detector.detected_issues[issues_before:issues_after]
+                                        self.user_memory.track_issues(new_issues)
+                                        if self.db_save_enabled:
+                                            self.unsaved_issues.extend(new_issues)
                         except Exception as e:
                             print(f"Error in async crawl task: {e}")
 

@@ -167,6 +167,27 @@ def init_crawl_tables():
             )
         ''')
 
+        # Page embeddings for content vectorization mode
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS page_embeddings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                crawl_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT,
+                h1 TEXT,
+                meta_description TEXT,
+                body_text TEXT,
+                embedding_input TEXT,
+                embedding BLOB NOT NULL,
+                internal_links_out TEXT,
+                token_count INTEGER,
+                model TEXT DEFAULT 'text-embedding-3-large',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (crawl_id) REFERENCES crawls(id) ON DELETE CASCADE,
+                UNIQUE(crawl_id, url)
+            )
+        ''')
+
         # Create indexes for performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawls_user_status ON crawls(user_id, status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawls_session ON crawls(session_id)')
@@ -180,6 +201,7 @@ def init_crawl_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_issues_url ON crawl_issues(crawl_id, url)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_issues_category ON crawl_issues(crawl_id, category)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_queue_crawl ON crawl_queue(crawl_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_page_embeddings_crawl ON page_embeddings(crawl_id)')
 
         print("Crawl persistence tables initialized successfully")
 
@@ -380,6 +402,55 @@ def save_issues_batch(crawl_id, issues):
     except Exception as e:
         print(f"Error saving issues batch: {e}")
         return False
+
+
+def save_embeddings_batch(crawl_id, embeddings):
+    """Save a batch of page embeddings to the database.
+
+    Args:
+        crawl_id: Integer crawl ID
+        embeddings: List of dicts with keys: url, title, h1, meta_description,
+                    body_text, embedding_input, embedding (bytes), internal_links_out (JSON string),
+                    token_count
+    """
+    with get_db() as db:
+        cursor = db.cursor()
+        rows = []
+        for e in embeddings:
+            rows.append((
+                crawl_id, e['url'], e.get('title'), e.get('h1'),
+                e.get('meta_description'), e.get('body_text'),
+                e.get('embedding_input'), e['embedding'],
+                e.get('internal_links_out'), e.get('token_count'),
+                e.get('model', 'text-embedding-3-large')
+            ))
+        cursor.executemany('''
+            INSERT OR REPLACE INTO page_embeddings
+            (crawl_id, url, title, h1, meta_description, body_text,
+             embedding_input, embedding, internal_links_out, token_count, model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', rows)
+        db.commit()
+
+
+def get_embeddings_for_crawl(crawl_id):
+    """Get all embeddings for a crawl, including BLOB vectors for export."""
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute('''
+            SELECT url, title, embedding_input, embedding, internal_links_out, token_count
+            FROM page_embeddings WHERE crawl_id = ?
+        ''', (crawl_id,))
+        return cursor.fetchall()
+
+
+def get_embedding_count(crawl_id):
+    """Get count of embeddings for a crawl."""
+    with get_db() as db:
+        cursor = db.cursor()
+        cursor.execute('SELECT COUNT(*) FROM page_embeddings WHERE crawl_id = ?', (crawl_id,))
+        return cursor.fetchone()[0]
+
 
 def save_checkpoint(crawl_id, checkpoint_data):
     """Save queue checkpoint for crash recovery"""

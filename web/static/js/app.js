@@ -345,13 +345,14 @@ function clearCrawlData() {
 }
 
 function startPythonCrawl(url) {
+    const cvMode = document.getElementById('contentVectorizationMode')?.checked || false;
     // Call Python backend to start crawling
     fetch('/api/start_crawl', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: url })
+        body: JSON.stringify({ url: url, contentVectorizationMode: cvMode })
     })
     .then(response => response.json())
     .then(data => {
@@ -436,6 +437,11 @@ function pollCrawlProgress() {
                         stats: crawlState.stats
                     });
                 }
+                // Start embedding progress polling if content vectorization was on
+                const cvMode = document.getElementById('contentVectorizationMode')?.checked || false;
+                if (cvMode) {
+                    pollEmbeddingProgress();
+                }
             }
         })
         .catch(error => {
@@ -443,6 +449,26 @@ function pollCrawlProgress() {
             // Continue polling even if there's an error (common on large crawls)
             if (crawlState.isRunning) {
                 setTimeout(pollCrawlProgress, 1000);
+            }
+        });
+}
+
+function pollEmbeddingProgress() {
+    fetch('/api/embed_status')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'embedding') {
+                document.getElementById('progressContainer').style.display = 'flex';
+                document.getElementById('progressText').textContent = `Embedding ${data.current}/${data.total} pages...`;
+                const pct = data.total > 0 ? (data.current / data.total * 100) : 0;
+                document.getElementById('progressFill').style.width = pct + '%';
+                setTimeout(pollEmbeddingProgress, 1000);
+            } else if (data.status === 'done') {
+                const msg = data.failed > 0
+                    ? `Embedding complete. ${data.current} pages embedded, ${data.failed} failed.`
+                    : `Embedding complete. ${data.current} pages embedded.`;
+                document.getElementById('progressText').textContent = msg;
+                updateStatus(msg);
             }
         });
 }
@@ -1626,7 +1652,16 @@ async function exportData() {
 }
 
 function exportAll() {
-    // Show the export modal instead of exporting directly
+    // Check if embeddings exist for current crawl
+    fetch('/api/embed_status')
+        .then(r => r.json())
+        .then(data => {
+            const expEmbed = document.getElementById('exp-embeddings');
+            if (expEmbed) {
+                expEmbed.disabled = !(data.status === 'done' && data.current > 0);
+            }
+        });
+    // Show the export modal
     const modal = document.getElementById('exportAllModal');
     if (modal) {
         modal.style.display = 'flex';
@@ -1643,15 +1678,16 @@ function closeExportAllModal() {
 async function runExportAll() {
     // Read checkbox states
     const opts = {
-        urls:      document.getElementById('exp-urls').checked,
-        body_text: document.getElementById('exp-body-text').checked,
-        links:     document.getElementById('exp-links').checked,
-        issues:    document.getElementById('exp-issues').checked,
-        images:    document.getElementById('exp-images').checked,
+        urls:       document.getElementById('exp-urls').checked,
+        body_text:  document.getElementById('exp-body-text').checked,
+        links:      document.getElementById('exp-links').checked,
+        issues:     document.getElementById('exp-issues').checked,
+        images:     document.getElementById('exp-images').checked,
+        embeddings: document.getElementById('exp-embeddings')?.checked || false,
     };
 
     // Must pick at least one
-    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images) {
+    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images && !opts.embeddings) {
         showNotification('Select at least one export option', 'error');
         return;
     }
@@ -2356,4 +2392,34 @@ function renderIssueRow(row, issue, index) {
         <td>${issue.issue}</td>
         <td style="word-break: break-word;" title="${issue.details}">${issue.details}</td>
     `;
+}
+
+function toggleContentVectorizationMode(enabled) {
+    const seoSettings = ['enablePageSpeed', 'enableDuplicationCheck'];
+    seoSettings.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = enabled;
+            el.closest('.setting-group')?.classList.toggle('disabled-setting', enabled);
+        }
+    });
+    document.getElementById('cvModeWarning').style.display = enabled ? 'block' : 'none';
+
+    // Check max URLs for scale warning
+    const maxUrls = parseInt(document.getElementById('maxUrls')?.value || '0');
+    document.getElementById('cvScaleWarning').style.display = (enabled && maxUrls > 5000) ? 'block' : 'none';
+
+    // Validate API key server-side
+    if (enabled) {
+        fetch('/api/check_openai_key')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.valid) {
+                    document.getElementById('cvModeWarning').textContent = data.error || 'OPENAI_API_KEY not configured';
+                    document.getElementById('cvModeWarning').style.borderColor = 'rgba(239,68,68,0.3)';
+                    document.getElementById('cvModeWarning').style.background = 'rgba(239,68,68,0.15)';
+                    document.getElementById('cvModeWarning').style.color = '#ef4444';
+                }
+            });
+    }
 }

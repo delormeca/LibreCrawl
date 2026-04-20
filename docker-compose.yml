@@ -18,6 +18,8 @@ services:
       - REGISTRATION_DISABLED=${REGISTRATION_DISABLED:-false}
       # Set to "true" for demo mode (1.5GB per-user memory limit)
       - DEMO_MODE=${DEMO_MODE:-false}
+      # Content Vectorization (OpenAI embeddings)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Uncomment these for SMTP sending
       # - SMTP_HOST=${SMTP_HOST}
       # - SMTP_PORT=${SMTP_PORT}

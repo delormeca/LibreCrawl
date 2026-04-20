@@ -50,6 +50,9 @@ Compress(app)
 # Initialize database on startup
 init_db()
 
+# Embedding progress state
+embed_progress = {'current': 0, 'total': 0, 'failed': 0, 'status': 'idle'}
+
 def generate_random_password(length=16):
     """Generate a random password with letters, digits, and symbols"""
     alphabet = string.ascii_letters + string.digits + string.punctuation
@@ -677,6 +680,10 @@ def start_crawl():
     except Exception as e:
         print(f"Warning: Could not apply settings: {e}")
 
+    # Content vectorization mode
+    content_vectorization = data.get('contentVectorizationMode', False)
+    crawler.set_content_vectorization_mode(content_vectorization)
+
     # Enforce demo mode limits
     if DEMO_MODE:
         crawler.config['demo_mode'] = True
@@ -690,6 +697,49 @@ def start_crawl():
         session['current_crawl_id'] = crawler.crawl_id
         # Also log to old crawl_history for compatibility
         log_crawl_start(user_id, url)
+
+    if content_vectorization and success:
+        import threading as _threading
+
+        cid = crawler.crawl_id
+
+        def run_embedding_after_crawl(crawler_instance, crawl_id):
+            global embed_progress
+            # Wait for crawl to finish
+            while crawler_instance.is_running:
+                time.sleep(1)
+
+            embed_progress.update({'current': 0, 'total': 0, 'failed': 0, 'status': 'embedding'})
+
+            from src.embedder import embed_pages
+            from src.crawl_db import save_embeddings_batch
+
+            # Collect page data from crawl results (crawl_results is a list)
+            pages = []
+            for url_data in crawler_instance.crawl_results:
+                if url_data.get('status_code') == 200 and url_data.get('body_text'):
+                    pages.append({
+                        'url': url_data['url'],
+                        'title': url_data.get('title', ''),
+                        'h1': url_data.get('h1', ''),
+                        'meta_description': url_data.get('meta_description', ''),
+                        'body_text': url_data.get('body_text', ''),
+                        'internal_links_out': url_data.get('internal_links_out', '[]'),
+                    })
+
+            embed_progress.update({'total': len(pages)})
+
+            def progress_cb(current, total, failed):
+                embed_progress.update({'current': current, 'total': total, 'failed': failed, 'status': 'embedding'})
+
+            results, stats = embed_pages(pages, progress_callback=progress_cb)
+
+            if results:
+                save_embeddings_batch(crawl_id, results)
+
+            embed_progress.update({'current': stats['embedded'], 'total': stats['total'], 'failed': stats['failed'], 'status': 'done'})
+
+        _threading.Thread(target=run_embedding_after_crawl, args=(crawler, cid), daemon=True).start()
 
     return jsonify({'success': success, 'message': message, 'crawl_id': crawler.crawl_id})
 
@@ -740,6 +790,20 @@ def crawl_status():
         status_data['issues'] = filtered_issues
 
     return jsonify(status_data)
+
+@app.route('/api/embed_status')
+@login_required
+def embed_status():
+    return jsonify(embed_progress)
+
+
+@app.route('/api/check_openai_key')
+@login_required
+def check_openai_key():
+    from src.embedder import validate_api_key
+    ok, error = validate_api_key()
+    return jsonify({'valid': ok, 'error': error})
+
 
 @app.route('/api/visualization_data')
 @login_required
@@ -1384,6 +1448,7 @@ def export_all():
         inc_links      = options.get('links', True)
         inc_issues     = options.get('issues', True)
         inc_images     = options.get('images', True)
+        inc_embeddings = options.get('embeddings', False)
 
         # Use local data if provided (loaded crawl), otherwise get from crawler
         if local_data and local_data.get('urls'):
@@ -1492,6 +1557,33 @@ def export_all():
                         'data': all_images
                     }, indent=2, default=str)
                     zf.writestr(f'librecrawl_images_{ts_file}.json', images_json)
+
+            # 6. Embeddings
+            if inc_embeddings:
+                from src.crawl_db import get_embeddings_for_crawl
+                from src.embedder import bytes_to_embedding
+                crawl_id = session.get('current_crawl_id')
+                if crawl_id:
+                    rows = get_embeddings_for_crawl(crawl_id)
+                    embed_data = []
+                    for row in rows:
+                        embed_data.append({
+                            'url': row[0],
+                            'title': row[1],
+                            'embedding_input': row[2],
+                            'embedding': bytes_to_embedding(row[3]),
+                            'internal_links_out': json.loads(row[4]) if row[4] else [],
+                            'token_count': row[5],
+                        })
+                    if embed_data:
+                        embed_json = json.dumps({
+                            'export_date': export_ts,
+                            'total_pages': len(embed_data),
+                            'model': 'text-embedding-3-large',
+                            'dimensions': 3072,
+                            'data': embed_data
+                        }, indent=2)
+                        zf.writestr(f'librecrawl_embeddings_{ts_file}.json', embed_json)
 
         buf.seek(0)
         return send_file(

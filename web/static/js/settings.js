@@ -2,6 +2,7 @@
 let currentSettings = {};
 let defaultSettings = {
     // Crawler settings
+    contentVectorizationMode: false,
     maxDepth: 3,
     maxUrls: 5000000,
     crawlDelay: 1,
