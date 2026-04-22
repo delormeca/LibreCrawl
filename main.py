@@ -1177,6 +1177,10 @@ def load_crawl_into_session(crawl_id):
             crawler.base_url = crawl['base_url']
             crawler.base_domain = crawl['base_domain']
 
+        # Ensure components are initialized (they're None if no crawl ran this session)
+        if not crawler.link_manager or not crawler.issue_detector:
+            crawler._initialize_components()
+
         # Load links into link manager
         if crawler.link_manager:
             crawler.link_manager.all_links = links

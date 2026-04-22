@@ -102,7 +102,7 @@ class WebCrawler:
         return {
             'max_depth': 3,
             'max_urls': 1000,
-            'delay': 1.0,
+            'delay': 0.3,
             'follow_redirects': True,
             'crawl_external': False,
             'user_agent': 'LibreCrawl/1.0 (Web Crawler)',
@@ -116,7 +116,7 @@ class WebCrawler:
             'include_patterns': [],
             'exclude_patterns': [],
             'max_file_size': 50 * 1024 * 1024,
-            'concurrency': 5,
+            'concurrency': 10,
             'memory_limit': 512 * 1024 * 1024,
             'log_level': 'INFO',
             'enable_proxy': False,

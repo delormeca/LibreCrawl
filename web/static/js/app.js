@@ -167,6 +167,58 @@ async function initializeApp() {
             console.error('Error loading crawl data:', error);
             updateStatus('Error loading crawl data');
         }
+    } else {
+        // No sessionStorage flag — but server may have an active or completed crawl
+        // (e.g., user closed the tab while crawl was running and came back)
+        try {
+            const statusResponse = await fetch('/api/crawl_status');
+            const statusData = await statusResponse.json();
+
+            if (statusData.status !== 'idle' && statusData.urls && statusData.urls.length > 0) {
+                console.log('Auto-reconnect: server has crawl data, restoring UI');
+                clearAllTables();
+                resetStats();
+
+                crawlState.urls = [];
+                crawlState.stats = statusData.stats || {};
+                crawlState.baseUrl = statusData.stats?.baseUrl || '';
+
+                if (crawlState.baseUrl) {
+                    document.getElementById('urlInput').value = crawlState.baseUrl;
+                }
+
+                statusData.urls.forEach(url => addUrlToTable(url));
+
+                if (statusData.links && statusData.links.length > 0) {
+                    crawlState.pendingLinks = statusData.links;
+                }
+                if (statusData.issues && statusData.issues.length > 0) {
+                    crawlState.pendingIssues = statusData.issues;
+                }
+
+                updateStatsDisplay();
+                updateFilterCounts();
+                updateStatusCodesTable();
+
+                if (statusData.status === 'running') {
+                    crawlState.isRunning = true;
+                    crawlState.isPaused = false;
+                    crawlState.startTime = new Date();
+                    if (!incrementalPoller) incrementalPoller = new IncrementalPoller();
+                    incrementalPoller.lastUrlCount = statusData.urls.length;
+                    incrementalPoller.allUrls = statusData.urls;
+                    showProgress();
+                    pollCrawlProgress();
+                    updateStatus('Reconnected — crawl in progress');
+                } else {
+                    updateStatus(`Restored: ${statusData.urls.length} URLs from previous crawl`);
+                }
+
+                updateCrawlButtons();
+            }
+        } catch (e) {
+            // Silent — server may have no data, this is fine on a fresh session
+        }
     }
 
     // Set initial focus
@@ -181,6 +233,16 @@ function setupEventListeners() {
 
     // Update timer every second when crawling
     setInterval(updateTimer, 1000);
+
+    // Warn before closing tab while crawl is actively running
+    // The server continues crawling either way — this just prevents accidental disconnects
+    window.addEventListener('beforeunload', function(e) {
+        if (crawlState.isRunning && !crawlState.isPaused) {
+            e.preventDefault();
+            e.returnValue = '';
+            return '';
+        }
+    });
 }
 
 function handleUrlKeypress(event) {
