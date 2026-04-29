@@ -1143,10 +1143,11 @@ def get_crawl(crawl_id):
 @app.route('/api/crawls/<int:crawl_id>/load', methods=['POST'])
 @login_required
 def load_crawl_into_session(crawl_id):
-    """Load a historical crawl into the current session"""
+    """Load a historical crawl into the current session via streamed batches"""
     try:
         user_id = session.get('user_id')
-        from src.crawl_db import get_crawl_by_id, load_crawled_urls, load_crawl_links, load_crawl_issues
+        from src.crawl_db import (get_crawl_by_id, count_crawled_urls,
+                                   count_crawl_links, count_crawl_issues)
 
         # Get crawl metadata
         crawl = get_crawl_by_id(crawl_id)
@@ -1164,56 +1165,54 @@ def load_crawl_into_session(crawl_id):
         if crawler.is_running:
             crawler.stop_crawl()
 
-        # Load all data from database
-        urls = load_crawled_urls(crawl_id)
-        links = load_crawl_links(crawl_id)
-        issues = load_crawl_issues(crawl_id)
+        # Clear any previous load state
+        for key in ['loading_crawl_id', 'db_load_url_offset', 'db_load_link_offset',
+                     'db_load_issue_offset', 'db_load_total_urls', 'db_load_total_links',
+                     'db_load_total_issues']:
+            session.pop(key, None)
 
-        # Inject into current crawler instance
-        with crawler.results_lock:
-            crawler.crawl_results = urls
-            crawler.stats['crawled'] = len(urls)
-            crawler.stats['discovered'] = len(urls)
-            crawler.base_url = crawl['base_url']
-            crawler.base_domain = crawl['base_domain']
+        # Set base URL/domain BEFORE initializing components (LinkManager needs base_domain)
+        crawler.base_url = crawl['base_url']
+        crawler.base_domain = crawl['base_domain']
 
-        # Ensure components are initialized (they're None if no crawl ran this session)
+        # Initialize components if needed
         if not crawler.link_manager or not crawler.issue_detector:
             crawler._initialize_components()
 
-        # Load links into link manager
+        # Reset crawler state for fresh load
+        with crawler.results_lock:
+            crawler.crawl_results = []
+            crawler.stats['crawled'] = 0
+            crawler.stats['discovered'] = 0
         if crawler.link_manager:
-            crawler.link_manager.all_links = links
-            # Rebuild links_set
+            crawler.link_manager.all_links = []
             crawler.link_manager.links_set.clear()
-            for link in links:
-                link_key = f"{link['source_url']}|{link['target_url']}"
-                crawler.link_manager.links_set.add(link_key)
-
-        # Load issues into issue detector
         if crawler.issue_detector:
-            crawler.issue_detector.detected_issues = issues
-
-        # Rebuild per-user memory tracker for loaded data
+            crawler.issue_detector.detected_issues = []
         crawler.user_memory.reset()
         crawler._demo_limit_reached = False
-        for url_data in urls:
-            crawler.user_memory.track_url(url_data)
-        if links:
-            crawler.user_memory.track_links(links)
-        if issues:
-            crawler.user_memory.track_issues(issues)
 
-        # Set Flask session flag for force full refresh
-        session['force_full_refresh'] = True
+        # Get total counts for progress tracking
+        total_urls = count_crawled_urls(crawl_id)
+        total_links = count_crawl_links(crawl_id)
+        total_issues = count_crawl_issues(crawl_id)
+
+        # Store loading state in session
+        session['loading_crawl_id'] = crawl_id
+        session['current_crawl_id'] = crawl_id
+        session['db_load_url_offset'] = 0
+        session['db_load_link_offset'] = 0
+        session['db_load_issue_offset'] = 0
+        session['db_load_total_urls'] = total_urls
+        session['db_load_total_links'] = total_links
+        session['db_load_total_issues'] = total_issues
 
         return jsonify({
             'success': True,
-            'message': f'Loaded {len(urls)} URLs, {len(links)} links, {len(issues)} issues',
-            'urls_count': len(urls),
-            'links_count': len(links),
-            'issues_count': len(issues),
-            'should_refresh_ui': True
+            'status': 'loading',
+            'total_urls': total_urls,
+            'total_links': total_links,
+            'total_issues': total_issues
         })
 
     except Exception as e:
