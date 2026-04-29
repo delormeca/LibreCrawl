@@ -630,6 +630,39 @@ def load_crawl_issues(crawl_id, limit=None, offset=0):
         print(f"Error loading issues: {e}")
         return []
 
+def count_crawled_urls(crawl_id):
+    """Count URLs for a crawl without loading them"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM crawled_urls WHERE crawl_id = ?', (crawl_id,))
+            return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"Error counting URLs: {e}")
+        return 0
+
+def count_crawl_links(crawl_id):
+    """Count links for a crawl without loading them"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM crawl_links WHERE crawl_id = ?', (crawl_id,))
+            return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"Error counting links: {e}")
+        return 0
+
+def count_crawl_issues(crawl_id):
+    """Count issues for a crawl without loading them"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM crawl_issues WHERE crawl_id = ?', (crawl_id,))
+            return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"Error counting issues: {e}")
+        return 0
+
 def get_resume_data(crawl_id):
     """Get all data needed to resume a crawl"""
     crawl = get_crawl_by_id(crawl_id)
