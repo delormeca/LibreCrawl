@@ -656,6 +656,13 @@ def start_crawl():
 
     user_id = session.get('user_id')
     session_id = session.get('session_id')
+
+    # Clear any in-progress DB load
+    for key in ['loading_crawl_id', 'db_load_url_offset', 'db_load_link_offset',
+                 'db_load_issue_offset', 'db_load_total_urls', 'db_load_total_links',
+                 'db_load_total_issues']:
+        session.pop(key, None)
+
     tier = session.get('tier', 'guest')
 
     # Check guest limits (IP-based) - skip in local mode
