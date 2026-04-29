@@ -93,11 +93,7 @@ async function loadCrawlFromDashboard(crawlId) {
             return;
         }
 
-        // Use redirect pattern so page fully reinitializes with fresh data
-        sessionStorage.setItem('force_ui_refresh', 'true');
-        sessionStorage.setItem('loaded_urls', data.urls_count);
-        sessionStorage.setItem('loaded_links', data.links_count);
-        sessionStorage.setItem('loaded_issues', data.issues_count);
+        // Redirect — main page will detect 'loading' status and start polling
         window.location.href = '/';
 
     } catch (error) {
