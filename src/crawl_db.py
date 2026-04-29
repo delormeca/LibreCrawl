@@ -594,7 +594,7 @@ def load_crawl_links(crawl_id, limit=None, offset=0):
         with get_db() as conn:
             cursor = conn.cursor()
 
-            query = 'SELECT * FROM crawl_links WHERE crawl_id = ?'
+            query = 'SELECT * FROM crawl_links WHERE crawl_id = ? ORDER BY id'
             params = [crawl_id]
 
             if limit:
@@ -615,7 +615,7 @@ def load_crawl_issues(crawl_id, limit=None, offset=0):
         with get_db() as conn:
             cursor = conn.cursor()
 
-            query = 'SELECT * FROM crawl_issues WHERE crawl_id = ?'
+            query = 'SELECT * FROM crawl_issues WHERE crawl_id = ? ORDER BY id'
             params = [crawl_id]
 
             if limit:
