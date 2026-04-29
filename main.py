@@ -760,6 +760,105 @@ def crawl_status():
     crawler = get_or_create_crawler()
     settings_manager = get_session_settings()
 
+    # --- DB-loading branch: serve batches from database ---
+    loading_crawl_id = session.get('loading_crawl_id')
+    if loading_crawl_id:
+        from src.crawl_db import load_crawled_urls, load_crawl_links, load_crawl_issues
+
+        url_offset = session.get('db_load_url_offset', 0)
+        link_offset = session.get('db_load_link_offset', 0)
+        issue_offset = session.get('db_load_issue_offset', 0)
+        total_urls = session.get('db_load_total_urls', 0)
+        total_links = session.get('db_load_total_links', 0)
+        total_issues = session.get('db_load_total_issues', 0)
+
+        # Read next batch from DB
+        new_urls = load_crawled_urls(loading_crawl_id, limit=50, offset=url_offset)
+        new_links = load_crawl_links(loading_crawl_id, limit=500, offset=link_offset)
+        new_issues = load_crawl_issues(loading_crawl_id, limit=200, offset=issue_offset)
+
+        # Advance offsets
+        session['db_load_url_offset'] = url_offset + len(new_urls)
+        session['db_load_link_offset'] = link_offset + len(new_links)
+        session['db_load_issue_offset'] = issue_offset + len(new_issues)
+
+        # Inject into crawler for tab functionality (export, visualization, etc.)
+        with crawler.results_lock:
+            crawler.crawl_results.extend(new_urls)
+            crawler.stats['crawled'] = len(crawler.crawl_results)
+            crawler.stats['discovered'] = total_urls
+            crawler.base_url = crawler.base_url or ''
+        if crawler.link_manager:
+            with crawler.link_manager.links_lock:
+                crawler.link_manager.all_links.extend(new_links)
+                for link in new_links:
+                    link_key = f"{link['source_url']}|{link['target_url']}"
+                    crawler.link_manager.links_set.add(link_key)
+        if crawler.issue_detector:
+            crawler.issue_detector.detected_issues.extend(new_issues)
+
+        # Track in user memory
+        for url_data in new_urls:
+            crawler.user_memory.track_url(url_data)
+        if new_links:
+            crawler.user_memory.track_links(new_links)
+        if new_issues:
+            crawler.user_memory.track_issues(new_issues)
+
+        # Calculate progress BEFORE potentially clearing session keys
+        current_url_offset = session['db_load_url_offset']
+        load_progress = (current_url_offset / max(total_urls, 1)) * 100
+
+        # Check if loading is complete
+        all_done = (current_url_offset >= total_urls
+                    and session['db_load_link_offset'] >= total_links
+                    and session['db_load_issue_offset'] >= total_issues)
+
+        if all_done:
+            # Run update_link_statuses once at the end
+            if crawler.link_manager:
+                crawler.link_manager.update_link_statuses(crawler.crawl_results)
+            # Clear loading state
+            for key in ['loading_crawl_id', 'db_load_url_offset', 'db_load_link_offset',
+                         'db_load_issue_offset', 'db_load_total_urls', 'db_load_total_links',
+                         'db_load_total_issues']:
+                session.pop(key, None)
+            load_status = 'completed'
+            load_progress = 100.0
+        else:
+            load_status = 'loading'
+
+        # Apply issue exclusion patterns
+        filtered_issues = new_issues
+        if new_issues:
+            current_settings = settings_manager.get_settings()
+            exclusion_patterns_text = current_settings.get('issueExclusionPatterns', '')
+            exclusion_patterns = [p.strip() for p in exclusion_patterns_text.split('\n') if p.strip()]
+            filtered_issues = filter_issues_by_exclusion_patterns(new_issues, exclusion_patterns)
+
+        data_sizes = crawler.user_memory.get_stats()
+
+        return jsonify({
+            'status': load_status,
+            'stats': {
+                'crawled': len(crawler.crawl_results),
+                'discovered': total_urls,
+                'depth': 0,
+                'speed': 0,
+                'baseUrl': crawler.base_url
+            },
+            'urls': new_urls,
+            'links': new_links,
+            'issues': filtered_issues,
+            'progress': load_progress,
+            'is_running_pagespeed': False,
+            'memory': {},
+            'memory_data': data_sizes,
+            'demo_stopped': False,
+            'demo_mode': False
+        })
+    # --- End DB-loading branch ---
+
     # Check for incremental update parameters
     url_since = request.args.get('url_since', type=int)
     link_since = request.args.get('link_since', type=int)
