@@ -1684,6 +1684,27 @@ def export_all():
                 links_json = generate_links_json_export(links)
                 zf.writestr(f'librecrawl_links_{ts_file}.json', links_json)
 
+                # 3b. Reverse link index (grouped by target URL, internal only)
+                reverse_index = {}
+                for link in links:
+                    if not link.get('is_internal'):
+                        continue
+                    target = link.get('target_url', '')
+                    if target not in reverse_index:
+                        reverse_index[target] = []
+                    reverse_index[target].append({
+                        'source_url': link.get('source_url', ''),
+                        'anchor_text': link.get('anchor_text', ''),
+                        'placement': link.get('placement', 'body')
+                    })
+                link_report = sorted(
+                    [{'target_url': t, 'count': len(srcs), 'linked_from': srcs}
+                     for t, srcs in reverse_index.items()],
+                    key=lambda x: x['count'], reverse=True
+                )
+                zf.writestr(f'librecrawl_link_report_{ts_file}.json',
+                            json.dumps(link_report, indent=2, default=str))
+
             # 4. Issues
             if inc_issues and issues:
                 issues_json = generate_issues_json_export(issues)
