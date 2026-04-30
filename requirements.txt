@@ -13,3 +13,4 @@ python-dotenv
 trafilatura
 openai
 tiktoken
+camoufox[geoip]

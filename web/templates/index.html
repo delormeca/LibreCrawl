@@ -544,6 +544,7 @@
                     <button class="settings-tab-btn" onclick="switchSettingsTab('filters')">Filters</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('export')">Export</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('javascript')">JavaScript</button>
+                    <button class="settings-tab-btn" onclick="switchSettingsTab('stealth')">Stealth</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('issues')">Issue Exclusion</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('customcss')">Custom CSS</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('advanced')">Advanced</button>
@@ -909,6 +910,19 @@
                             <strong>⚠️ Performance Impact</strong><br>
                             JavaScript rendering is significantly slower than HTTP-only crawling. Use for sites with dynamic content or when static crawling produces incomplete results.
                         </div>
+                    </div>
+                </div>
+
+                <!-- Stealth Browser Settings -->
+                <div id="stealth-settings" class="settings-tab-content">
+                    <h3>Stealth Browser (CamoFox)</h3>
+
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="stealthMode">
+                            Enable Stealth Mode
+                        </label>
+                        <span class="setting-help">Use CamoFox (anti-detection Firefox) for all page rendering. When off, CamoFox is still used as fallback for blocked pages (403/503).</span>
                     </div>
                 </div>
 

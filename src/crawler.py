@@ -48,6 +48,8 @@ class WebCrawler:
         self.sitemap_parser = None
         self.issue_detector = None
         self.seo_extractor = SEOExtractor()
+        # CamoFox stealth renderer (lazy init on first use)
+        self.camoufox_renderer = None
         self.memory_monitor = MemoryMonitor()
         self.user_memory = UserMemoryTracker()
 
@@ -920,6 +922,29 @@ class WebCrawler:
                 'linked_from': []
             }
 
+            # Stealth fallback: retry with CamoFox on bot-blocked responses
+            if result['status_code'] in (403, 503):
+                try:
+                    if not self.camoufox_renderer:
+                        from src.core.camoufox_renderer import CamoFoxRenderer
+                        self.camoufox_renderer = CamoFoxRenderer()
+                    original_status = result['status_code']
+                    stealth_content, stealth_status = asyncio.run(
+                        self.camoufox_renderer.render_page(url)
+                    )
+                    result['status_code'] = stealth_status
+                    result['size'] = len(stealth_content.encode('utf-8'))
+                    result['javascript_rendered'] = True
+                    response = type('StealthResponse', (), {
+                        'status_code': stealth_status,
+                        'content': stealth_content.encode('utf-8'),
+                        'text': stealth_content,
+                        'headers': {'content-type': 'text/html'}
+                    })()
+                    print(f"Stealth retry: {url} ({original_status} -> {stealth_status})")
+                except Exception as e:
+                    print(f"Stealth retry failed for {url}: {e}")
+
             # Only parse HTML content
             if 'text/html' in response.headers.get('content-type', ''):
                 soup = BeautifulSoup(response.content, 'html.parser')
@@ -1008,8 +1033,20 @@ class WebCrawler:
         start_time = time.time()
 
         try:
-            # Render page with JavaScript
-            html_content, status_code, error = await self.js_renderer.render_page(url)
+            # Use CamoFox if stealth mode is enabled
+            if self.config.get('stealth_mode', False):
+                if not self.camoufox_renderer:
+                    from src.core.camoufox_renderer import CamoFoxRenderer
+                    self.camoufox_renderer = CamoFoxRenderer()
+                html_content, status_code = await self.camoufox_renderer.render_page(
+                    url,
+                    wait_time=self.config.get('js_wait_time', 3),
+                    timeout=self.config.get('js_timeout', 30)
+                )
+                error = None
+            else:
+                # Render page with JavaScript (Chromium)
+                html_content, status_code, error = await self.js_renderer.render_page(url)
 
             if error:
                 return self.seo_extractor.create_empty_result(url, depth, status_code, error)

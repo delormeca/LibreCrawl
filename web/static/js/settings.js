@@ -55,6 +55,9 @@ let defaultSettings = {
     jsViewportHeight: 1080,
     jsMaxConcurrentPages: 3,
 
+    // Stealth browser settings
+    stealthMode: false,
+
     // Custom CSS styling
     customCSS: '',
 
@@ -465,6 +468,7 @@ function collectSettingsFromForm() {
         'exportFormat', 'concurrency', 'memoryLimit', 'logLevel', 'saveSession',
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
+        'stealthMode',
         'customCSS', 'issueExclusionPatterns'
     ];
 

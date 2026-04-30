@@ -39,6 +39,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install Playwright system dependencies for all browsers (requires root)
 RUN playwright install-deps
 
+# Install CamoFox stealth browser (patched Firefox) — requires root for GeoIP DB
+RUN python -m camoufox fetch
+
 # Create a non-root user to run the application
 RUN groupadd -r librecrawl && useradd -r -g librecrawl -u 1000 librecrawl \
     && mkdir -p /home/librecrawl && chown -R librecrawl:librecrawl /home/librecrawl

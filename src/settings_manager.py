@@ -45,6 +45,8 @@ class SettingsManager:
             # JavaScript tab
             'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless',
             'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
+            # Stealth tab
+            'stealthMode',
             # Custom CSS tab
             'customCSS'
         ]
@@ -124,6 +126,9 @@ class SettingsManager:
             'jsViewportWidth': 1920,
             'jsViewportHeight': 1080,
             'jsMaxConcurrentPages': 3,
+
+            # Stealth browser settings
+            'stealthMode': False,
 
             # Custom CSS styling
             'customCSS': '',
@@ -511,7 +516,8 @@ class SettingsManager:
             'js_max_concurrent_pages': settings['jsMaxConcurrentPages'],
             'issue_exclusion_patterns': [p.strip() for p in settings['issueExclusionPatterns'].split('\n') if p.strip()],
             'enable_duplication_check': settings['enableDuplicationCheck'],
-            'duplication_threshold': settings['duplicationThreshold']
+            'duplication_threshold': settings['duplicationThreshold'],
+            'stealth_mode': settings['stealthMode']
         }
 
     def _parse_custom_headers(self, headers_text):
