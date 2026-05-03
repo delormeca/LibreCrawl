@@ -24,8 +24,7 @@
                     <span id="userInfo" style="margin-right: 15px; color: #6b7280; font-size: 14px;"></span>
                     <button class="btn btn-secondary" onclick="openDashboard()">Dashboard</button>
                     <button class="btn btn-secondary" onclick="openSettings()">Settings</button>
-                    <button class="btn btn-secondary" onclick="exportData()">Export</button>
-                    <button class="btn btn-secondary" onclick="exportAll()" title="Export all data as JSON ZIP">Export All</button>
+                    <button class="btn btn-secondary" onclick="exportAll()" title="Export crawl data">Export</button>
                     <button class="btn btn-success" id="saveCrawlBtn" onclick="saveCrawl()" disabled>Save Crawl</button>
                     <button class="btn btn-primary" id="loadCrawlBtn" onclick="loadCrawl()">Load Crawl</button>
                     <button class="btn btn-danger" onclick="logout()" style="margin-left: 10px;">Logout</button>
@@ -82,6 +81,9 @@
             <!-- Sidebar -->
             <aside class="sidebar" id="sidebar">
                 <div class="sidebar-section">
+                    <div style="margin-bottom: 12px;">
+                        <input type="text" id="globalUrlSearch" placeholder="Search URLs..." oninput="searchUrls(this.value)" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 13px; box-sizing: border-box;">
+                    </div>
                     <h3 class="sidebar-title">Filters</h3>
                     <div class="filter-tree">
                         <div class="filter-group">
@@ -196,6 +198,7 @@
                         <button class="tab-btn" onclick="switchTab('status-codes')">Status Codes</button>
                         <button class="tab-btn" onclick="switchTab('links')">Links</button>
                         <button class="tab-btn" onclick="switchTab('issues')">Issues</button>
+                        <button class="tab-btn" onclick="switchTab('content')">Content</button>
                         <button class="tab-btn" onclick="switchTab('pagespeed')">PageSpeed</button>
                         <button class="tab-btn" onclick="switchTab('visualization')">Visualization</button>
                         <button class="tab-btn" id="embeddingsTabBtn" onclick="switchTab('embeddings')" style="display:none;">Embeddings</button>
@@ -207,20 +210,20 @@
                                 <table class="data-table" id="overviewTable">
                                     <thead>
                                         <tr>
-                                            <th>Address</th>
-                                            <th>Status</th>
-                                            <th>Title</th>
-                                            <th>Meta Desc</th>
-                                            <th>H1</th>
-                                            <th>Words</th>
-                                            <th>Response (ms)</th>
-                                            <th>Analytics</th>
-                                            <th>OG Tags</th>
-                                            <th>JSON-LD</th>
-                                            <th>Links (Int/Ext)</th>
-                                            <th>Images</th>
-                                            <th>JS</th>
-                                            <th>Details</th>
+                                            <th style="width:20%">Address</th>
+                                            <th style="width:4%">Status</th>
+                                            <th style="width:14%">Title</th>
+                                            <th style="width:10%">Meta Desc</th>
+                                            <th style="width:10%">H1</th>
+                                            <th style="width:4%">Words</th>
+                                            <th style="width:5%">Response (ms)</th>
+                                            <th style="width:5%">Analytics</th>
+                                            <th style="width:4%">OG Tags</th>
+                                            <th style="width:5%">JSON-LD</th>
+                                            <th style="width:5%">Links (Int/Ext)</th>
+                                            <th style="width:4%">Images</th>
+                                            <th style="width:3%">JS</th>
+                                            <th style="width:7%">Details</th>
                                         </tr>
                                     </thead>
                                     <tbody id="overviewTableBody">
@@ -235,11 +238,11 @@
                                 <table class="data-table" id="internalTable">
                                     <thead>
                                         <tr>
-                                            <th>Address</th>
-                                            <th>Status</th>
-                                            <th>Content Type</th>
-                                            <th>Size</th>
-                                            <th>Title</th>
+                                            <th style="width:40%">Address</th>
+                                            <th style="width:8%">Status</th>
+                                            <th style="width:15%">Content Type</th>
+                                            <th style="width:10%">Size</th>
+                                            <th style="width:27%">Title</th>
                                         </tr>
                                     </thead>
                                     <tbody id="internalTableBody">
@@ -254,11 +257,11 @@
                                 <table class="data-table" id="externalTable">
                                     <thead>
                                         <tr>
-                                            <th>Address</th>
-                                            <th>Status</th>
-                                            <th>Content Type</th>
-                                            <th>Size</th>
-                                            <th>Title</th>
+                                            <th style="width:40%">Address</th>
+                                            <th style="width:8%">Status</th>
+                                            <th style="width:15%">Content Type</th>
+                                            <th style="width:10%">Size</th>
+                                            <th style="width:27%">Title</th>
                                         </tr>
                                     </thead>
                                     <tbody id="externalTableBody">
@@ -396,6 +399,36 @@
                                         </svg>
                                         <h3>No Issues Found</h3>
                                         <p>Start crawling to detect SEO issues and problems on your website.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="content-tab" class="tab-pane">
+                            <div class="table-container">
+                                <table class="data-table" id="contentTable">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:30%">URL</th>
+                                            <th style="width:15%">Title</th>
+                                            <th style="width:12%">H1</th>
+                                            <th style="width:5%">Words</th>
+                                            <th style="width:38%">Body Text</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="contentTableBody">
+                                    </tbody>
+                                </table>
+                                <div class="empty-state" id="contentEmptyState" style="display: none;">
+                                    <div class="empty-state-content">
+                                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                                            <polyline points="14 2 14 8 20 8"/>
+                                            <line x1="16" y1="13" x2="8" y2="13"/>
+                                            <line x1="16" y1="17" x2="8" y2="17"/>
+                                        </svg>
+                                        <h3>No Content Data</h3>
+                                        <p>Start crawling to extract page content (title, H1, body text).</p>
                                     </div>
                                 </div>
                             </div>

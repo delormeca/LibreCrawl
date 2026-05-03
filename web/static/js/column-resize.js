@@ -16,7 +16,6 @@ class ColumnResizer {
 
     initializeResizers() {
         const headerCells = this.table.querySelectorAll('thead th');
-        console.log('Initializing resizers for table with', headerCells.length, 'columns');
 
         headerCells.forEach((th, index) => {
             // Don't add resizer to last column
@@ -25,33 +24,9 @@ class ColumnResizer {
             // Make the header cell positioned
             th.style.position = 'relative';
 
-            // Create resize grip
+            // Create resize grip (styled via CSS .column-resize-grip)
             const grip = document.createElement('div');
             grip.className = 'column-resize-grip';
-            grip.style.cssText = `
-                position: absolute;
-                top: 0;
-                right: -4px;
-                width: 8px;
-                height: 100%;
-                cursor: col-resize;
-                z-index: 100;
-                user-select: none;
-                background: transparent;
-            `;
-
-            console.log('Added resize grip to column', index, th.textContent);
-
-            // Add hover indicator
-            grip.addEventListener('mouseenter', () => {
-                grip.style.background = 'rgba(139, 92, 246, 0.2)';
-            });
-
-            grip.addEventListener('mouseleave', () => {
-                if (this.activeGrip !== grip) {
-                    grip.style.background = 'transparent';
-                }
-            });
 
             // Mouse events for dragging
             grip.addEventListener('mousedown', (e) => this.onMouseDown(e, th, grip));
@@ -91,7 +66,7 @@ class ColumnResizer {
 
     onMouseUp() {
         if (this.activeGrip) {
-            this.activeGrip.style.background = 'transparent';
+            this.activeGrip.style.background = '';
         }
 
         this.activeGrip = null;
@@ -107,7 +82,6 @@ function initializeColumnResizers() {
     tables.forEach(table => {
         new ColumnResizer(table);
     });
-    console.log('Column resizers initialized for', tables.length, 'tables');
 }
 
 // Export for use in app.js

@@ -393,12 +393,14 @@ body {
 .tab-content {
     flex: 1;
     overflow: hidden;
+    min-height: 0;
 }
 
 .tab-pane {
     height: 100%;
     display: none;
     overflow: hidden;
+    min-height: 0;
 }
 
 .tab-pane.active {
@@ -412,7 +414,7 @@ body {
     overflow: auto;
     padding: 20px;
     position: relative;
-    height: 700px;
+    min-height: 0;
 }
 
 .data-table {
@@ -425,7 +427,7 @@ body {
 }
 
 .data-table th {
-    background: rgba(106, 122, 64, 0.12);
+    background: rgba(30, 35, 15, 0.98);
     padding: 14px 18px;
     text-align: left;
     font-weight: 700;
@@ -435,10 +437,12 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.8px;
     white-space: nowrap;
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 10;
     min-width: 80px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    cursor: pointer;
+    user-select: none;
 }
 
 .data-table td {
@@ -458,6 +462,90 @@ body {
 
 .data-table tbody tr:nth-child(even) {
     background: rgba(255, 255, 255, 0.02);
+}
+
+/* URL cell with action icons */
+.url-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.url-cell-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.url-cell-actions {
+    display: none;
+    flex-shrink: 0;
+    gap: 2px;
+}
+.data-table tbody tr:hover .url-cell-actions {
+    display: flex;
+}
+.url-action-btn {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 3px;
+    line-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.url-action-btn:hover {
+    background: rgba(139, 92, 246, 0.3);
+    color: #e2e8f0;
+}
+
+/* Column copy buttons in headers */
+.col-copy-btn {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 2px;
+    margin-left: 4px;
+    border-radius: 3px;
+    line-height: 0;
+    vertical-align: middle;
+    opacity: 0.5;
+}
+.col-copy-btn:hover {
+    opacity: 1;
+    color: #c8d9a0;
+    background: rgba(106, 122, 64, 0.3);
+}
+.col-copy-all {
+    margin-left: 0;
+    margin-right: 6px;
+    opacity: 0.7;
+    color: #a8b878;
+}
+.col-copy-all:hover {
+    opacity: 1;
+    background: rgba(106, 122, 64, 0.4);
+}
+
+/* Column resize grip — wider grab area, visible indicator */
+.column-resize-grip {
+    position: absolute;
+    top: 0;
+    right: -6px;
+    width: 12px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 110;
+    user-select: none;
+    background: transparent;
+    border-right: 2px solid transparent;
+}
+.column-resize-grip:hover {
+    border-right-color: rgba(139, 92, 246, 0.6);
 }
 
 /* Status Bar */

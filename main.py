@@ -780,9 +780,9 @@ def crawl_status():
         total_issues = session.get('db_load_total_issues', 0)
 
         # Read next batch from DB
-        new_urls = load_crawled_urls(loading_crawl_id, limit=50, offset=url_offset)
-        new_links = load_crawl_links(loading_crawl_id, limit=500, offset=link_offset)
-        new_issues = load_crawl_issues(loading_crawl_id, limit=200, offset=issue_offset)
+        new_urls = load_crawled_urls(loading_crawl_id, limit=200, offset=url_offset)
+        new_links = load_crawl_links(loading_crawl_id, limit=5000, offset=link_offset)
+        new_issues = load_crawl_issues(loading_crawl_id, limit=2000, offset=issue_offset)
 
         # Advance offsets
         session['db_load_url_offset'] = url_offset + len(new_urls)
@@ -1774,20 +1774,38 @@ def export_all():
 
 
 def recover_crashed_crawls():
-    """Check for and recover any crashed crawls on startup"""
+    """Check for and recover any crashed/orphaned crawls on startup.
+    - If all URLs were crawled (urls_crawled >= urls_discovered), mark as completed.
+    - Otherwise mark as paused (genuinely incomplete, can be resumed).
+    """
     try:
-        from src.crawl_db import get_crashed_crawls, set_crawl_status
+        from src.crawl_db import set_crawl_status, get_db
 
-        crashed = get_crashed_crawls()
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, base_url, status, urls_crawled, urls_discovered
+                FROM crawls
+                WHERE status IN ('running', 'paused')
+                ORDER BY started_at DESC
+            ''')
+            orphans = [dict(row) for row in cursor.fetchall()]
 
-        if crashed:
+        if orphans:
             print("\n" + "=" * 60)
             print("CRASH RECOVERY")
             print("=" * 60)
-            for crawl in crashed:
-                set_crawl_status(crawl['id'], 'failed')
-                print(f"Found crashed crawl: {crawl['base_url']} (ID: {crawl['id']})")
-                print(f"  → Marked as failed. User can resume from dashboard.")
+            for crawl in orphans:
+                crawled = crawl.get('urls_crawled') or 0
+                discovered = crawl.get('urls_discovered') or 0
+                if crawled > 0 and crawled >= discovered:
+                    set_crawl_status(crawl['id'], 'completed')
+                    print(f"  {crawl['base_url']} (ID: {crawl['id']}): {crawl['status']} → completed ({crawled}/{discovered} URLs)")
+                else:
+                    # Genuinely incomplete — keep as paused so user can resume
+                    if crawl['status'] == 'running':
+                        set_crawl_status(crawl['id'], 'paused')
+                    print(f"  {crawl['base_url']} (ID: {crawl['id']}): {crawl['status']} → paused ({crawled}/{discovered} URLs, resumable)")
             print("=" * 60 + "\n")
     except Exception as e:
         print(f"Error during crash recovery: {e}")

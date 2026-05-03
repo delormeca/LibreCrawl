@@ -353,8 +353,8 @@ function applyTierRestrictions(tier) {
     const tierTabs = {
         'guest': [],  // No settings tabs for guests
         'user': ['crawler', 'export', 'issues'],
-        'extra': ['crawler', 'export', 'issues', 'filters', 'requests', 'customcss', 'javascript'],
-        'admin': ['crawler', 'requests', 'filters', 'export', 'javascript', 'issues', 'customcss', 'advanced']
+        'extra': ['crawler', 'export', 'issues', 'filters', 'requests', 'customcss', 'javascript', 'stealth'],
+        'admin': ['crawler', 'requests', 'filters', 'export', 'javascript', 'stealth', 'issues', 'customcss', 'advanced']
     };
 
     const allowedTabs = tierTabs[tier] || [];

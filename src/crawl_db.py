@@ -203,6 +203,12 @@ def init_crawl_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_queue_crawl ON crawl_queue(crawl_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_page_embeddings_crawl ON page_embeddings(crawl_id)')
 
+        # Migrations — add columns that may not exist in older databases
+        try:
+            cursor.execute("ALTER TABLE crawled_urls ADD COLUMN body_text TEXT DEFAULT ''")
+        except:
+            pass  # column already exists
+
         print("Crawl persistence tables initialized successfully")
 
 def create_crawl(user_id, session_id, base_url, base_domain, config_snapshot):
@@ -308,7 +314,8 @@ def save_url_batch(crawl_id, urls):
                     url_data.get('external_links'),
                     url_data.get('internal_links'),
                     url_data.get('response_time'),
-                    url_data.get('javascript_rendered', False)
+                    url_data.get('javascript_rendered', False),
+                    url_data.get('body_text', '')
                 )
                 rows.append(row)
 
@@ -319,8 +326,9 @@ def save_url_batch(crawl_id, urls):
                     canonical_url, lang, charset, viewport, robots,
                     meta_tags, og_tags, twitter_tags, json_ld, analytics, images,
                     hreflang, schema_org, redirects, linked_from,
-                    external_links, internal_links, response_time, javascript_rendered
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    external_links, internal_links, response_time, javascript_rendered,
+                    body_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', rows)
 
             print(f"Saved {len(urls)} URLs to database for crawl {crawl_id}")

@@ -15,6 +15,7 @@ let crawlState = {
     },
     filters: {
         active: null,
+        urlSearch: '',
         issueFilter: 'all',
         linksFilter: {
             internalStatusCode: 'all',
@@ -35,7 +36,8 @@ let virtualScrollers = {
     external: null,
     internalLinks: null,
     externalLinks: null,
-    issues: null
+    issues: null,
+    content: null
 };
 
 // Initialize application
@@ -401,7 +403,12 @@ function pollCrawlProgress() {
 
     fetchPromise
         .then(data => {
-            updateCrawlData(data);
+            // Skip updateCrawlData during DB loading — the loading branch
+            // accumulates links/issues incrementally, updateCrawlData would replace them.
+            // Also skip when loading just completed (isLoading flag still true) to preserve accumulated data.
+            if (data.status !== 'loading' && !crawlState.isLoading) {
+                updateCrawlData(data);
+            }
 
             // Update bottom status bar based on current state
             if (data.is_running_pagespeed) {
@@ -457,6 +464,23 @@ function pollCrawlProgress() {
             } else if (crawlState.isRunning && data.status !== 'completed') {
                 setTimeout(pollCrawlProgress, 1000); // Poll every second
             } else if (data.status === 'completed') {
+                // Finalize accumulated data from DB loading
+                if (crawlState.isLoading) {
+                    // Process last batch
+                    if (data.links && data.links.length > 0) {
+                        crawlState.links = crawlState.links.concat(data.links);
+                    }
+                    if (data.issues && data.issues.length > 0) {
+                        crawlState.issues = crawlState.issues.concat(data.issues);
+                    }
+                    if (data.urls && data.urls.length > 0) {
+                        data.urls.forEach(url => addUrlToTable(url));
+                    }
+                    // Load accumulated links/issues into their tables
+                    crawlState.pendingLinks = crawlState.links;
+                    crawlState.pendingIssues = crawlState.issues;
+                    console.log(`DB load complete: ${crawlState.links.length} links, ${crawlState.issues.length} issues accumulated`);
+                }
                 // Clear loading flag
                 crawlState.isLoading = false;
                 stopCrawl();
@@ -794,11 +818,13 @@ function initializeTables() {
     clearAllTables();
     // Initialize virtual scrollers for all tables
     initializeVirtualScrollers();
-    // Initialize column resizers after virtual scrollers
+    // Initialize column resizers and column copy after virtual scrollers
     setTimeout(() => {
         if (window.initializeColumnResizers) {
             initializeColumnResizers();
         }
+        setupColumnCopy();
+        setupColumnSort();
     }, 100);
 }
 
@@ -868,6 +894,17 @@ function initializeVirtualScrollers() {
                 renderRow: renderIssueRow
             });
             console.log('Issues virtual scroller initialized');
+        }
+
+        // Content table
+        const contentContainer = document.querySelector('#content-tab .table-container');
+        if (contentContainer && contentContainer.querySelector('tbody')) {
+            virtualScrollers.content = new VirtualScroller(contentContainer, {
+                rowHeight: 100,
+                buffer: 25,
+                renderRow: renderContentRow
+            });
+            console.log('Content virtual scroller initialized');
         }
     } catch (error) {
         console.error('Error initializing virtual scrollers:', error);
@@ -1087,6 +1124,9 @@ function clearAllTables() {
     if (virtualScrollers.issues) {
         virtualScrollers.issues.clear();
     }
+    if (virtualScrollers.content) {
+        virtualScrollers.content.clear();
+    }
 
     // Clear status codes table (not virtualized)
     const statusCodesBody = document.getElementById('statusCodesTableBody');
@@ -1109,6 +1149,190 @@ function formatAnalyticsInfo(analytics) {
     return detected.length > 0 ? detected.join(', ') : '';
 }
 
+// Scroller-to-table mapping for column copy
+const columnCopyMap = {
+    overviewTable: { scroller: 'overview', extractor: extractOverviewColumn },
+    internalTable: { scroller: 'internal', extractor: extractSimpleColumn },
+    externalTable: { scroller: 'external', extractor: extractSimpleColumn },
+    issuesTable: { scroller: 'issues', extractor: extractIssueColumn },
+    contentTable: { scroller: 'content', extractor: extractContentColumn },
+    internalLinksTable: { scroller: 'internalLinks', extractor: extractInternalLinkColumn },
+    externalLinksTable: { scroller: 'externalLinks', extractor: extractExternalLinkColumn },
+};
+
+// Add visible copy buttons to every column header + a "copy all" button
+function setupColumnCopy() {
+    document.querySelectorAll('.data-table').forEach(table => {
+        const entry = columnCopyMap[table.id];
+        if (!entry) return;
+
+        const headerRow = table.querySelector('thead tr');
+        if (!headerRow) return;
+
+        // "Copy all" button — first cell, copies all columns as TSV
+        const copyAllBtn = document.createElement('button');
+        copyAllBtn.className = 'col-copy-btn col-copy-all';
+        copyAllBtn.title = 'Copy all columns (tab-separated)';
+        copyAllBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+        copyAllBtn.onclick = (e) => {
+            e.stopPropagation();
+            copyAllColumns(table.id, entry);
+        };
+        headerRow.children[0].insertBefore(copyAllBtn, headerRow.children[0].firstChild);
+
+        // Per-column copy button in each header
+        Array.from(headerRow.children).forEach((th, colIndex) => {
+            const btn = document.createElement('button');
+            btn.className = 'col-copy-btn';
+            btn.title = 'Copy this column';
+            btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                copySingleColumn(table.id, entry, colIndex, th.textContent.trim());
+            };
+            th.appendChild(btn);
+        });
+    });
+}
+
+function copySingleColumn(tableId, entry, colIndex, headerText) {
+    const scroller = virtualScrollers[entry.scroller];
+    if (!scroller || !scroller.data || scroller.data.length === 0) {
+        showNotification('No data to copy', 'info');
+        return;
+    }
+    const values = [headerText, ...scroller.data.map(item => entry.extractor(item, colIndex))];
+    navigator.clipboard.writeText(values.join('\n'));
+    showNotification(`Copied ${scroller.data.length} rows from "${headerText}"`, 'success');
+}
+
+function copyAllColumns(tableId, entry) {
+    const scroller = virtualScrollers[entry.scroller];
+    if (!scroller || !scroller.data || scroller.data.length === 0) {
+        showNotification('No data to copy', 'info');
+        return;
+    }
+    const table = document.getElementById(tableId);
+    const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+    const colCount = headers.length;
+
+    const rows = [headers.join('\t')];
+    scroller.data.forEach(item => {
+        const cols = [];
+        for (let i = 0; i < colCount; i++) {
+            cols.push(entry.extractor(item, i));
+        }
+        rows.push(cols.join('\t'));
+    });
+    navigator.clipboard.writeText(rows.join('\n'));
+    showNotification(`Copied ${scroller.data.length} rows (all columns)`, 'success');
+}
+
+// Column sorting — click header text to cycle asc → desc → reset
+let sortState = { tableId: null, colIndex: null, direction: null };
+
+function setupColumnSort() {
+    document.querySelectorAll('.data-table thead th').forEach(th => {
+        th.addEventListener('click', (e) => {
+            // Ignore clicks on copy buttons and resize grips
+            if (e.target.closest('.col-copy-btn') || e.target.closest('.col-copy-all') ||
+                e.target.classList.contains('column-resize-grip')) return;
+
+            const table = th.closest('.data-table');
+            const entry = columnCopyMap[table.id];
+            if (!entry) return;
+
+            const scroller = virtualScrollers[entry.scroller];
+            if (!scroller || !scroller.data || scroller.data.length === 0) return;
+
+            const colIndex = Array.from(th.parentElement.children).indexOf(th);
+
+            // Cycle sort direction
+            if (sortState.tableId === table.id && sortState.colIndex === colIndex) {
+                if (sortState.direction === 'asc') sortState.direction = 'desc';
+                else if (sortState.direction === 'desc') { sortState.direction = null; sortState.tableId = null; }
+            } else {
+                sortState = { tableId: table.id, colIndex, direction: 'asc' };
+            }
+
+            // Clear sort indicators from all headers in this table
+            table.querySelectorAll('thead th .sort-arrow').forEach(el => el.remove());
+
+            if (sortState.direction) {
+                // Add sort indicator
+                const arrow = document.createElement('span');
+                arrow.className = 'sort-arrow';
+                arrow.textContent = sortState.direction === 'asc' ? ' ▲' : ' ▼';
+                arrow.style.fontSize = '10px';
+                th.appendChild(arrow);
+
+                // Sort data
+                const sorted = [...scroller.data].sort((a, b) => {
+                    const valA = entry.extractor(a, colIndex);
+                    const valB = entry.extractor(b, colIndex);
+                    const numA = Number(valA), numB = Number(valB);
+                    const isNum = !isNaN(numA) && !isNaN(numB) && valA !== '' && valB !== '';
+                    let cmp = isNum ? numA - numB : String(valA).localeCompare(String(valB));
+                    return sortState.direction === 'desc' ? -cmp : cmp;
+                });
+                scroller.setData(sorted);
+            } else {
+                // Reset — reapply filters to get original order
+                reapplyCurrentFilters(entry.scroller);
+            }
+        });
+    });
+}
+
+function reapplyCurrentFilters(scrollerName) {
+    if (scrollerName === 'overview' || scrollerName === 'internal' || scrollerName === 'external') {
+        filterVirtualScrollerData(scrollerName, crawlState.filters.active);
+    } else if (scrollerName === 'internalLinks' || scrollerName === 'externalLinks') {
+        applyLinksFilter();
+    } else if (scrollerName === 'issues') {
+        filterIssues(crawlState.filters.issueFilter || 'all');
+    } else if (scrollerName === 'content') {
+        updateContentTable();
+    }
+}
+
+function extractOverviewColumn(urlData, colIndex) {
+    const fields = [
+        urlData.url, urlData.status_code, urlData.title || '',
+        urlData.meta_description || '', urlData.h1 || '', urlData.word_count || 0,
+        urlData.response_time || 0, formatAnalyticsInfo(urlData.analytics || {}),
+        Object.keys(urlData.og_tags || {}).length || '', (urlData.json_ld || []).length || '',
+        `${urlData.internal_links || 0}/${urlData.external_links || 0}`,
+        (urlData.images || []).length || '', urlData.javascript_rendered ? 'JS' : '', ''
+    ];
+    return fields[colIndex] ?? '';
+}
+
+function extractSimpleColumn(urlData, colIndex) {
+    const fields = [urlData.url, urlData.status_code, urlData.content_type || '', urlData.size || 0, urlData.title || ''];
+    return fields[colIndex] ?? '';
+}
+
+function extractIssueColumn(issue, colIndex) {
+    const fields = [issue.url, issue.type, issue.category, issue.issue, issue.details];
+    return fields[colIndex] ?? '';
+}
+
+function extractContentColumn(urlData, colIndex) {
+    const fields = [urlData.url, urlData.title || '', urlData.h1 || '', urlData.word_count || 0, urlData.body_text || ''];
+    return fields[colIndex] ?? '';
+}
+
+function extractInternalLinkColumn(link, colIndex) {
+    const fields = [link.source_url, link.target_url, link.target_status || '', link.anchor_text || '', link.placement || ''];
+    return fields[colIndex] ?? '';
+}
+
+function extractExternalLinkColumn(link, colIndex) {
+    const fields = [link.source_url, link.target_url, link.target_status || '', link.target_domain || '', link.placement || ''];
+    return fields[colIndex] ?? '';
+}
+
 function addUrlToTable(urlData) {
     // Check if URL already exists to prevent duplicates
     const existingUrl = crawlState.urls.find(u => u.url === urlData.url);
@@ -1127,6 +1351,11 @@ function addUrlToTable(urlData) {
         virtualScrollers.internal.appendData([urlData]);
     } else if (!urlData.is_internal && virtualScrollers.external) {
         virtualScrollers.external.appendData([urlData]);
+    }
+
+    // Content tab — append to scroller if active, otherwise defer to tab switch
+    if (virtualScrollers.content && document.getElementById('content-tab')?.classList.contains('active')) {
+        virtualScrollers.content.appendData([urlData]);
     }
 
     // Reapply current filter if one is active
@@ -1156,21 +1385,49 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
 
-    // Add active class to selected tab and pane
-    event.target.classList.add('active');
+    // Add active class to selected tab button (find by tabName, not event.target,
+    // because clicking a badge <span> inside the button gives wrong target)
+    const tabBtn = Array.from(document.querySelectorAll('.tab-btn')).find(
+        btn => btn.getAttribute('onclick')?.includes(`'${tabName}'`)
+    );
+    if (tabBtn) tabBtn.classList.add('active');
     document.getElementById(tabName + '-tab').classList.add('active');
 
-    // Load pending links data if switching to Links tab
-    if (tabName === 'links' && crawlState.pendingLinks) {
-        updateLinksTable(crawlState.pendingLinks);
-        crawlState.pendingLinks = null; // Clear pending data
-    }
+    // Defer pending-data loads to next frame so the container has layout dimensions
+    // (virtual scrollers need non-zero container height to render correctly)
+    requestAnimationFrame(() => {
+        // Load pending links data if switching to Links tab
+        if (tabName === 'links' && crawlState.pendingLinks) {
+            updateLinksTable(crawlState.pendingLinks);
+            crawlState.pendingLinks = null;
+        }
 
-    // Load pending issues data if switching to Issues tab
-    if (tabName === 'issues' && crawlState.pendingIssues) {
-        updateIssuesTable(crawlState.pendingIssues);
-        crawlState.pendingIssues = null; // Clear pending data
-    }
+        // Load pending issues data if switching to Issues tab
+        if (tabName === 'issues' && crawlState.pendingIssues) {
+            updateIssuesTable(crawlState.pendingIssues);
+            crawlState.pendingIssues = null;
+        }
+
+        // Load content data if switching to Content tab
+        if (tabName === 'content') {
+            updateContentTable();
+        }
+
+        // Force virtual scroller viewport update for newly visible tabs
+        if (tabName === 'links') {
+            if (virtualScrollers.internalLinks) virtualScrollers.internalLinks.updateViewport();
+            if (virtualScrollers.externalLinks) virtualScrollers.externalLinks.updateViewport();
+        } else {
+            const scrollerName = tabName === 'issues' ? 'issues' :
+                                 tabName === 'overview' ? 'overview' :
+                                 tabName === 'internal' ? 'internal' :
+                                 tabName === 'external' ? 'external' :
+                                 tabName === 'content' ? 'content' : null;
+            if (scrollerName && virtualScrollers[scrollerName]) {
+                virtualScrollers[scrollerName].updateViewport();
+            }
+        }
+    });
 
     // Initialize visualization if switching to Visualization tab
     if (tabName === 'visualization' && typeof initVisualization === 'function') {
@@ -1294,8 +1551,33 @@ function applyFilter(filterType) {
     console.log('Applied filter:', filterType);
 }
 
+// Global URL search across Overview, Internal, External, Content tabs
+function searchUrls(searchText) {
+    crawlState.filters.urlSearch = searchText.toLowerCase();
+    // Reapply all filters (which now include search)
+    filterVirtualScrollerData('overview', crawlState.filters.active);
+    filterVirtualScrollerData('internal', crawlState.filters.active);
+    filterVirtualScrollerData('external', crawlState.filters.active);
+    // Also update content tab if visible
+    if (virtualScrollers.content) {
+        let data = crawlState.urls;
+        if (crawlState.filters.urlSearch) {
+            data = data.filter(u =>
+                u.url.toLowerCase().includes(crawlState.filters.urlSearch) ||
+                (u.title && u.title.toLowerCase().includes(crawlState.filters.urlSearch)) ||
+                (u.h1 && u.h1.toLowerCase().includes(crawlState.filters.urlSearch))
+            );
+        }
+        virtualScrollers.content.setData(data);
+    }
+    updateStatusCodesTable(crawlState.filters.active);
+}
+
 function clearActiveFilters() {
     crawlState.filters.active = null;
+    crawlState.filters.urlSearch = '';
+    const searchInput = document.getElementById('globalUrlSearch');
+    if (searchInput) searchInput.value = '';
 
     // Reset all virtual scrollers to show full data
     if (virtualScrollers.overview) {
@@ -1355,6 +1637,16 @@ function filterVirtualScrollerData(scrollerName, filterType) {
                     return true;
             }
         });
+    }
+
+    // Apply URL search text
+    const searchText = crawlState.filters.urlSearch;
+    if (searchText) {
+        filteredData = filteredData.filter(url =>
+            url.url.toLowerCase().includes(searchText) ||
+            (url.title && url.title.toLowerCase().includes(searchText)) ||
+            (url.h1 && url.h1.toLowerCase().includes(searchText))
+        );
     }
 
     scroller.setData(filteredData);
@@ -2345,6 +2637,49 @@ function loadCrawl() {
 // Virtual Scroller Render Functions
 // ========================================
 
+// Helper: create a URL cell with copy + open-in-new-tab icons
+function createUrlCell(url) {
+    const cell = document.createElement('td');
+    cell.style.wordBreak = 'break-all';
+    cell.title = url;
+
+    const wrapper = document.createElement('span');
+    wrapper.className = 'url-cell';
+
+    const text = document.createElement('span');
+    text.className = 'url-cell-text';
+    text.textContent = url;
+    wrapper.appendChild(text);
+
+    const actions = document.createElement('span');
+    actions.className = 'url-cell-actions';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'url-action-btn';
+    copyBtn.title = 'Copy URL';
+    copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+    copyBtn.onclick = (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(url);
+        showNotification('URL copied', 'success');
+    };
+    actions.appendChild(copyBtn);
+
+    const openBtn = document.createElement('button');
+    openBtn.className = 'url-action-btn';
+    openBtn.title = 'Open in new tab';
+    openBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+    openBtn.onclick = (e) => {
+        e.stopPropagation();
+        window.open(url, '_blank');
+    };
+    actions.appendChild(openBtn);
+
+    wrapper.appendChild(actions);
+    cell.appendChild(wrapper);
+    return cell;
+}
+
 function renderOverviewRow(row, urlData, index) {
     const analyticsInfo = formatAnalyticsInfo(urlData.analytics || {});
     const ogTagsCount = Object.keys(urlData.og_tags || {}).length;
@@ -2353,8 +2688,10 @@ function renderOverviewRow(row, urlData, index) {
     const imagesCount = (urlData.images || []).length;
     const jsRendered = urlData.javascript_rendered ? '✅ JS' : '';
 
+    // URL cell with action icons
+    row.appendChild(createUrlCell(urlData.url));
+
     const cells = [
-        urlData.url,
         urlData.status_code,
         urlData.title || '',
         (urlData.meta_description || '').substring(0, 50) + (urlData.meta_description && urlData.meta_description.length > 50 ? '...' : ''),
@@ -2369,21 +2706,25 @@ function renderOverviewRow(row, urlData, index) {
         jsRendered,
         `<button class="details-btn" onclick="showUrlDetails('${urlData.url.replace(/'/g, "\\'")}')">📊 Details</button>`
     ];
+    // Full values for tooltips (meta_description not truncated)
+    const titles = [null, urlData.title, urlData.meta_description, urlData.h1, null, null, null, null, null, null, null, null, null];
 
-    cells.forEach(cellData => {
+    cells.forEach((cellData, i) => {
         const cell = document.createElement('td');
         if (typeof cellData === 'string' && cellData.includes('<button')) {
             cell.innerHTML = cellData;
         } else {
             cell.textContent = cellData;
+            cell.title = titles[i] || String(cellData);
         }
         row.appendChild(cell);
     });
 }
 
 function renderInternalRow(row, urlData, index) {
+    row.appendChild(createUrlCell(urlData.url));
+
     const cells = [
-        urlData.url,
         urlData.status_code,
         urlData.content_type || '',
         urlData.size || 0,
@@ -2393,13 +2734,15 @@ function renderInternalRow(row, urlData, index) {
     cells.forEach(cellData => {
         const cell = document.createElement('td');
         cell.textContent = cellData;
+        cell.title = String(cellData);
         row.appendChild(cell);
     });
 }
 
 function renderExternalRow(row, urlData, index) {
+    row.appendChild(createUrlCell(urlData.url));
+
     const cells = [
-        urlData.url,
         urlData.status_code,
         urlData.content_type || '',
         urlData.size || 0,
@@ -2409,6 +2752,7 @@ function renderExternalRow(row, urlData, index) {
     cells.forEach(cellData => {
         const cell = document.createElement('td');
         cell.textContent = cellData;
+        cell.title = String(cellData);
         row.appendChild(cell);
     });
 }
@@ -2417,26 +2761,34 @@ function renderInternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
     const placement = link.placement ? link.placement.charAt(0).toUpperCase() + link.placement.slice(1) : 'Unknown';
 
-    row.innerHTML = `
-        <td style="word-break: break-all;">${link.source_url}</td>
-        <td style="word-break: break-all;">${link.target_url}</td>
-        <td>${statusBadge}</td>
-        <td>${link.anchor_text || ''}</td>
-        <td>${placement}</td>
-    `;
+    row.appendChild(createUrlCell(link.source_url));
+    row.appendChild(createUrlCell(link.target_url));
+
+    const remaining = [statusBadge, link.anchor_text || '', placement];
+    const remainingTitles = [link.target_status || '', link.anchor_text || '', placement];
+    remaining.forEach((html, i) => {
+        const td = document.createElement('td');
+        td.innerHTML = html;
+        td.title = String(remainingTitles[i]);
+        row.appendChild(td);
+    });
 }
 
 function renderExternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
     const placement = link.placement ? link.placement.charAt(0).toUpperCase() + link.placement.slice(1) : 'Unknown';
 
-    row.innerHTML = `
-        <td style="word-break: break-all;">${link.source_url}</td>
-        <td style="word-break: break-all;">${link.target_url}</td>
-        <td>${statusBadge}</td>
-        <td>${link.target_domain || ''}</td>
-        <td>${placement}</td>
-    `;
+    row.appendChild(createUrlCell(link.source_url));
+    row.appendChild(createUrlCell(link.target_url));
+
+    const remaining = [statusBadge, link.target_domain || '', placement];
+    const remainingTitles = [link.target_status || '', link.target_domain || '', placement];
+    remaining.forEach((html, i) => {
+        const td = document.createElement('td');
+        td.innerHTML = html;
+        td.title = String(remainingTitles[i]);
+        row.appendChild(td);
+    });
 }
 
 function renderIssueRow(row, issue, index) {
@@ -2465,13 +2817,81 @@ function renderIssueRow(row, issue, index) {
         typeColor = '#3b82f6';
     }
 
-    row.innerHTML = `
-        <td style="word-break: break-all;" title="${issue.url}">${issue.url}</td>
-        <td><span style="color: ${typeColor};">${typeIcon}</span> ${issue.type}</td>
-        <td>${issue.category}</td>
-        <td>${issue.issue}</td>
-        <td style="word-break: break-word;" title="${issue.details}">${issue.details}</td>
-    `;
+    row.appendChild(createUrlCell(issue.url));
+
+    const cells = [
+        `<span style="color: ${typeColor};">${typeIcon}</span> ${issue.type}`,
+        issue.category,
+        issue.issue,
+        issue.details
+    ];
+    cells.forEach((html, i) => {
+        const td = document.createElement('td');
+        if (i === 3) { td.style.wordBreak = 'break-word'; td.title = issue.details; }
+        td.innerHTML = html;
+        row.appendChild(td);
+    });
+}
+
+function renderContentRow(row, urlData, index) {
+    row.appendChild(createUrlCell(urlData.url));
+
+    const title = document.createElement('td');
+    title.textContent = urlData.title || '';
+    title.title = urlData.title || '';
+    row.appendChild(title);
+
+    const h1 = document.createElement('td');
+    h1.textContent = urlData.h1 || '';
+    h1.title = urlData.h1 || '';
+    row.appendChild(h1);
+
+    const words = document.createElement('td');
+    words.textContent = urlData.word_count || 0;
+    row.appendChild(words);
+
+    const body = document.createElement('td');
+    const bodyText = urlData.body_text || '';
+    const preview = bodyText.substring(0, 200) + (bodyText.length > 200 ? '...' : '');
+    body.textContent = preview;
+    body.title = 'Click to expand';
+    body.style.cursor = bodyText.length > 200 ? 'pointer' : 'default';
+    body.style.whiteSpace = 'normal';
+    body.style.maxHeight = '60px';
+    body.style.overflow = 'hidden';
+    body.style.lineHeight = '1.4';
+    body.style.fontSize = '12px';
+    if (bodyText.length > 200) {
+        body.addEventListener('click', () => {
+            if (body._expanded) {
+                body.textContent = preview;
+                body.style.maxHeight = '60px';
+                body._expanded = false;
+            } else {
+                body.textContent = bodyText;
+                body.style.maxHeight = 'none';
+                body._expanded = true;
+            }
+        });
+    }
+    row.appendChild(body);
+}
+
+function updateContentTable() {
+    const urls = crawlState.urls || [];
+    const emptyState = document.getElementById('contentEmptyState');
+    const table = document.getElementById('contentTable');
+
+    if (urls.length === 0) {
+        if (emptyState) emptyState.style.display = 'block';
+        if (table) table.style.display = 'none';
+    } else {
+        if (emptyState) emptyState.style.display = 'none';
+        if (table) table.style.display = 'table';
+        if (virtualScrollers.content) {
+            virtualScrollers.content.setData(urls);
+        }
+    }
 }
 
 function toggleContentVectorizationMode(enabled) {

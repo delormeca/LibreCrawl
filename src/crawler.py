@@ -927,7 +927,7 @@ class WebCrawler:
                 try:
                     if not self.camoufox_renderer:
                         from src.core.camoufox_renderer import CamoFoxRenderer
-                        self.camoufox_renderer = CamoFoxRenderer()
+                        self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                     original_status = result['status_code']
                     stealth_content, stealth_status = asyncio.run(
                         self.camoufox_renderer.render_page(url)
@@ -1037,7 +1037,7 @@ class WebCrawler:
             if self.config.get('stealth_mode', False):
                 if not self.camoufox_renderer:
                     from src.core.camoufox_renderer import CamoFoxRenderer
-                    self.camoufox_renderer = CamoFoxRenderer()
+                    self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                 html_content, status_code = await self.camoufox_renderer.render_page(
                     url,
                     wait_time=self.config.get('js_wait_time', 3),
