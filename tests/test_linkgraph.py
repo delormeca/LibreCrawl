@@ -236,6 +236,125 @@ def test_extract_sections_empty_html():
     assert SEOExtractor.extract_sections(None, title='X') == []
 
 
+# --- LinkManager Enriched Tests ---
+
+LINK_TEST_HTML = '''<html><body>
+<nav><a href="/about">About Us</a></nav>
+<h2>Services</h2>
+<p>We offer <a href="/seo" title="SEO" class="cta" data-track="click">excellent SEO services</a> for businesses looking to grow their online presence and visibility.</p>
+<p>Also check <a href="/seo" rel="nofollow">our SEO overview page</a> for a quick summary of what we can do for your business.</p>
+<h2>Blog</h2>
+<p>Read our <a href="/blog/guide" target="_blank">complete guide</a> to understanding modern search engine optimization techniques and strategies.</p>
+<footer><a href="/privacy">Privacy Policy</a></footer>
+</body></html>'''
+
+
+def test_enriched_links_basic_collection():
+    """collect_all_links_enriched captures all links with context."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}, {'heading': 'Blog', 'position': 1}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    # Should have: About (nav) + SEO (body) + SEO nofollow (body) + guide (body) + Privacy (footer) = 5
+    assert len(lm.all_links) == 5, f'Expected 5 links, got {len(lm.all_links)}'
+
+
+def test_enriched_links_no_source_target_dedup():
+    """Same target with different anchors should NOT be deduped."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    seo_links = [l for l in lm.all_links if '/seo' in l['target_url']]
+    assert len(seo_links) == 2, f'Expected 2 /seo links (different anchors), got {len(seo_links)}'
+
+
+def test_enriched_links_placement_detection():
+    """Links in nav should be 'navigation', in footer should be 'footer', others 'body'."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    about = [l for l in lm.all_links if '/about' in l['target_url']][0]
+    assert about['placement'] == 'navigation'
+
+    privacy = [l for l in lm.all_links if '/privacy' in l['target_url']][0]
+    assert privacy['placement'] == 'footer'
+
+    seo = [l for l in lm.all_links if l['anchor_text'] == 'excellent SEO services'][0]
+    assert seo['placement'] == 'body'
+
+
+def test_enriched_links_attributes():
+    """All HTML attributes should be captured including data-* grouping."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    seo = [l for l in lm.all_links if l['anchor_text'] == 'excellent SEO services'][0]
+    assert seo['attributes']['title'] == 'SEO'
+    assert seo['attributes']['class'] == 'cta'
+    assert seo['attributes']['data']['track'] == 'click'
+
+    nofollow = [l for l in lm.all_links if 'nofollow' in (l['attributes'].get('rel') or '')][0]
+    assert 'nofollow' in nofollow['attributes']['rel']
+
+
+def test_enriched_links_context():
+    """Links should have surrounding paragraph text as context."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    seo = [l for l in lm.all_links if l['anchor_text'] == 'excellent SEO services'][0]
+    assert 'SEO services' in seo['context'], f'Context should contain anchor text: {seo["context"]}'
+    assert len(seo['context']) > 0
+
+
+def test_enriched_links_parent_heading():
+    """Links should have parent heading detected."""
+    from bs4 import BeautifulSoup
+    from src.core.link_manager import LinkManager
+
+    lm = LinkManager('example.com')
+    soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
+    sections = [{'heading': 'Services', 'position': 0}, {'heading': 'Blog', 'position': 1}]
+
+    lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
+
+    seo = [l for l in lm.all_links if l['anchor_text'] == 'excellent SEO services'][0]
+    assert seo['parent_heading'] == 'Services'
+
+    guide = [l for l in lm.all_links if '/blog/guide' in l['target_url']][0]
+    assert guide['parent_heading'] == 'Blog'
+    assert guide['section_position'] == 1
+
+
 def test_save_links_old_format_still_works(temp_db):
     """save_links_batch works with old-format links (no enriched fields)."""
     import src.crawl_db as crawl_db

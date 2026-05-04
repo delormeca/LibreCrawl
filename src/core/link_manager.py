@@ -155,6 +155,128 @@ class LinkManager:
         # Default to body if not in nav or footer
         return 'body'
 
+    @staticmethod
+    def _find_parent_heading(element):
+        """Find the nearest preceding H2/H3 heading for a link element."""
+        current = element
+        while current:
+            sibling = current.find_previous_sibling(['h2', 'h3'])
+            if sibling:
+                return sibling.get_text(strip=True), int(sibling.name[1])
+            current = current.parent
+            if current and current.name in ['h2', 'h3']:
+                return current.get_text(strip=True), int(current.name[1])
+        return None, None
+
+    @staticmethod
+    def _extract_link_context(link_element, max_chars=200):
+        """Extract surrounding text context from parent block element."""
+        parent = link_element.parent
+        while parent and parent.name not in ['p', 'li', 'td', 'blockquote', 'div', 'body', None]:
+            parent = parent.parent
+
+        if parent and parent.name in ['p', 'li', 'td', 'blockquote']:
+            text = parent.get_text(separator=' ', strip=True)
+            if len(text) > max_chars:
+                return text[:max_chars].rsplit(' ', 1)[0] + '...'
+            return text
+
+        if link_element.parent:
+            text = link_element.parent.get_text(separator=' ', strip=True)
+            if len(text) > max_chars:
+                return text[:max_chars].rsplit(' ', 1)[0] + '...'
+            return text
+
+        return ''
+
+    @staticmethod
+    def _extract_link_attributes(link_element):
+        """Extract all HTML attributes from an <a> tag."""
+        attrs = link_element.attrs or {}
+        result = {
+            'rel': ' '.join(attrs.get('rel', [])) if isinstance(attrs.get('rel'), list) else attrs.get('rel'),
+            'target': attrs.get('target'),
+            'title': attrs.get('title'),
+            'class': ' '.join(attrs.get('class', [])) if isinstance(attrs.get('class'), list) else attrs.get('class'),
+            'id': attrs.get('id'),
+            'data': {},
+        }
+        for key, value in attrs.items():
+            if key.startswith('data-'):
+                result['data'][key[5:]] = value
+        return result
+
+    def collect_all_links_enriched(self, soup, source_url, sections, crawl_results):
+        """Collect all links with rich context for linkgraph mode.
+
+        Unlike collect_all_links, this does NOT deduplicate on source|target alone.
+        Dedup key: source_url|target_url|anchor_text|section_position
+        """
+        links = soup.find_all('a', href=True)
+
+        heading_positions = {}
+        for section in sections:
+            heading_positions[section.get('heading', '')] = section.get('position')
+
+        for link in links:
+            href = link['href'].strip()
+            if not href or href.startswith('#') or href.startswith('mailto:') or href.startswith('tel:'):
+                continue
+
+            try:
+                absolute_url = urljoin(source_url, href)
+                parsed_target = urlparse(absolute_url)
+
+                clean_url = f"{parsed_target.scheme}://{parsed_target.netloc}{parsed_target.path}"
+                if parsed_target.query:
+                    clean_url += f"?{parsed_target.query}"
+
+                target_domain_clean = parsed_target.netloc.replace('www.', '', 1)
+                base_domain_clean = self.base_domain.replace('www.', '', 1)
+                is_internal = target_domain_clean == base_domain_clean
+
+                target_status = None
+                for r in crawl_results:
+                    if r['url'] == clean_url:
+                        target_status = r['status_code']
+                        break
+
+                placement = self._detect_link_placement(link)
+                anchor_text = link.get_text().strip()[:100] or '(no text)'
+                context = self._extract_link_context(link)
+                parent_heading, _ = self._find_parent_heading(link)
+                section_position = heading_positions.get(parent_heading) if parent_heading else None
+                attributes = self._extract_link_attributes(link)
+
+                link_data = {
+                    'source_url': source_url,
+                    'target_url': clean_url,
+                    'anchor_text': anchor_text,
+                    'is_internal': is_internal,
+                    'target_domain': parsed_target.netloc,
+                    'target_status': target_status,
+                    'placement': placement,
+                    'context': context,
+                    'parent_heading': parent_heading or '',
+                    'section_position': section_position,
+                    'attributes': attributes,
+                }
+
+                with self.urls_lock:
+                    if clean_url not in self.source_pages:
+                        self.source_pages[clean_url] = []
+                    if source_url not in self.source_pages[clean_url]:
+                        self.source_pages[clean_url].append(source_url)
+
+                with self.links_lock:
+                    link_key = f"{source_url}|{clean_url}|{anchor_text}|{section_position}"
+                    if link_key not in self.links_set:
+                        self.links_set.add(link_key)
+                        self.all_links.append(link_data)
+
+            except Exception:
+                continue
+
     def is_internal(self, url):
         """Check if URL is internal to the base domain"""
         parsed_url = urlparse(url)
