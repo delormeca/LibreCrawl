@@ -281,6 +281,15 @@ function stopCrawl() {
     stopPythonCrawl();
 }
 
+function toggleSitemapInput(event) {
+    event.preventDefault();
+    const container = document.getElementById('sitemapInputContainer');
+    const toggle = document.getElementById('sitemapToggle');
+    const isHidden = container.style.display === 'none';
+    container.style.display = isHidden ? 'block' : 'none';
+    toggle.textContent = isHidden ? '− Hide sitemap URLs' : '+ Add sitemap URLs';
+}
+
 function clearCrawlData() {
     if (crawlState.isRunning) {
         if (!confirm('A crawl is currently running. Stop the crawl and clear all data?')) {
@@ -342,18 +351,27 @@ function clearCrawlData() {
     // Reset URL input
     document.getElementById('urlInput').value = '';
     document.getElementById('urlInput').focus();
+
+    // Clear sitemap textarea
+    const sitemapTextarea = document.getElementById('sitemapTextarea');
+    if (sitemapTextarea) sitemapTextarea.value = '';
 }
 
 function startPythonCrawl(url) {
     const cvMode = document.getElementById('contentVectorizationMode')?.checked || false;
     const lgMode = document.getElementById('linkgraphMode')?.checked || false;
+
+    // Collect user-provided sitemap URLs
+    const sitemapText = document.getElementById('sitemapTextarea')?.value || '';
+    const sitemapUrls = sitemapText.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+
     // Call Python backend to start crawling
     fetch('/api/start_crawl', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: url, contentVectorizationMode: cvMode, linkgraphMode: lgMode })
+        body: JSON.stringify({ url: url, contentVectorizationMode: cvMode, linkgraphMode: lgMode, sitemapUrls: sitemapUrls })
     })
     .then(response => response.json())
     .then(data => {
@@ -419,14 +437,17 @@ function pollCrawlProgress() {
                 const crawled = stats.crawled || 0;
                 const discovered = stats.discovered || 0;
                 const speed = stats.speed || 0;
+                const sitemapCount = stats.sitemap_url_count || 0;
 
                 if (discovered === 0 && crawled === 0) {
                     updateStatus('Parsing sitemaps...');
                 } else if (discovered > 0 && crawled === 0) {
-                    updateStatus(`Sitemap discovery complete — ${discovered} URLs found. Starting crawl...`);
+                    const sitemapNote = sitemapCount > 0 ? `Sitemap: ${sitemapCount} URLs locked in. ` : '';
+                    updateStatus(`${sitemapNote}${discovered} URLs discovered. Starting crawl...`);
                 } else {
                     const rate = speed > 0 ? speed.toFixed(2) : '—';
-                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec`);
+                    const sitemapNote = sitemapCount > 0 ? ` (${sitemapCount} from sitemap)` : '';
+                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec${sitemapNote}`);
                 }
             }
 
