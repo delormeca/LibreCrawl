@@ -1301,8 +1301,8 @@ class WebCrawler:
                                 # Track per-user memory
                                 self.user_memory.track_url(result)
 
-                                # Detect issues (skip in content vectorization mode)
-                                if not self.content_vectorization_mode:
+                                # Detect issues (skip in content vectorization and linkgraph modes)
+                                if not self.content_vectorization_mode and not self.linkgraph_mode:
                                     issues_before = len(self.issue_detector.detected_issues)
                                     self.issue_detector.detect_issues(result)
                                     issues_after = len(self.issue_detector.detected_issues)
@@ -1343,8 +1343,8 @@ class WebCrawler:
                 # Update all linked_from fields before completing
                 self._update_all_linked_from()
 
-                # Run duplication detection on all crawled content
-                if self.issue_detector and self.config.get('enable_duplication_check', True):
+                # Run duplication detection on all crawled content (skip in linkgraph mode)
+                if self.issue_detector and self.config.get('enable_duplication_check', True) and not self.linkgraph_mode:
                     print("Running duplication detection...")
                     duplication_threshold = self.config.get('duplication_threshold', 0.85)
                     self.issue_detector.detect_duplication_issues(self.crawl_results, duplication_threshold)
