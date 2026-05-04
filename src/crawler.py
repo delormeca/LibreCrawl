@@ -996,9 +996,10 @@ class WebCrawler:
                     self.seo_extractor.extract_basic_seo_data(soup, result)
                     self.seo_extractor.extract_body_text(response.text, result)
 
-                    # Sections (for embedding/vectorization in mini-app)
+                    # Sections (split trafilatura's clean output by heading markers)
                     result['sections'] = self.seo_extractor.extract_sections(
-                        response.text, title=result.get('title', '')
+                        response.text, title=result.get('title', ''),
+                        clean_text=result.get('body_text', '')
                     )
 
                     # Enriched link collection (replaces old collect_all_links)
@@ -1162,7 +1163,8 @@ class WebCrawler:
                 self.seo_extractor.extract_body_text(html_content, result)
 
                 result['sections'] = self.seo_extractor.extract_sections(
-                    html_content, title=result.get('title', '')
+                    html_content, title=result.get('title', ''),
+                    clean_text=result.get('body_text', '')
                 )
 
                 links_before = len(self.link_manager.all_links)

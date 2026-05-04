@@ -158,28 +158,44 @@ def test_extract_body_text_uses_clean_soup():
 
 
 def test_extract_sections_with_headings():
-    """extract_sections splits content by H2/H3 headings."""
+    """extract_sections splits trafilatura clean text by heading markers."""
     from src.core.seo_extractor import SEOExtractor
-    # Each paragraph must be >30 words to avoid being merged into the previous section
+
+    # Use a realistic HTML page with substantial content per section (>30 words each)
     html = '''<html><body>
-    <h1>Page Title</h1>
-    <p>Intro paragraph with enough words to pass the thirty word minimum for section extraction testing purposes here and more words to be safe about it and even more padding words.</p>
-    <h2>First Section</h2>
-    <p>Content under first section with enough words to exceed the thirty word minimum threshold for the merge logic testing purposes here and additional padding to be safe and ensure quality.</p>
-    <h3>Subsection A</h3>
-    <p>Content under subsection A with enough words to exceed the thirty word minimum threshold for testing purposes and verification and extra padding words to ensure this section stands alone independently.</p>
-    <h2>Second Section</h2>
-    <p>Content under second section with enough words to be independently meaningful for embedding and vectorization purposes here plus additional padding words to ensure standalone viability of this section and more words to exceed the absolute minimum threshold.</p>
+    <h1>Insurance Guide</h1>
+    <p>Welcome to our comprehensive insurance guide covering all aspects of vehicle protection including liability coverage comprehensive collision and specialized protections for modern drivers in Quebec and beyond with detailed explanations of each type.</p>
+    <h2>Liability Coverage</h2>
+    <p>Liability coverage is the foundation of any auto insurance policy in Quebec providing essential protection against claims from other drivers pedestrians and property owners when you are found responsible for an accident that causes damage or injury to others on the road.</p>
+    <h2>Comprehensive Protection</h2>
+    <p>Comprehensive protection extends your coverage beyond collisions to include theft vandalism natural disasters falling objects and other non-collision events that could damage your vehicle while it is parked or in situations where traditional collision coverage would not apply to your claim.</p>
     </body></html>'''
-    sections = SEOExtractor.extract_sections(html, title='Page Title')
+
+    # Simulate clean_text from trafilatura (each paragraph >30 words)
+    clean_text = (
+        "Welcome to our comprehensive insurance guide covering all aspects of vehicle protection "
+        "including liability coverage comprehensive collision and specialized protections for modern "
+        "drivers in Quebec and beyond with detailed explanations of each type.\n"
+        "Liability Coverage\n"
+        "Liability coverage is the foundation of any auto insurance policy in Quebec providing "
+        "essential protection against claims from other drivers pedestrians and property owners "
+        "when you are found responsible for an accident that causes damage or injury to others on the road.\n"
+        "Comprehensive Protection\n"
+        "Comprehensive protection extends your coverage beyond collisions to include theft vandalism "
+        "natural disasters falling objects and other non-collision events that could damage your vehicle "
+        "while it is parked or in situations where traditional collision coverage would not apply to your claim."
+    )
+
+    sections = SEOExtractor.extract_sections(html, title='Insurance Guide', clean_text=clean_text)
     assert len(sections) >= 3, f'Expected >= 3 sections, got {len(sections)}'
-    # First section should be intro
-    assert sections[0]['heading_level'] == 1
-    assert sections[0]['position'] == 0
     # Check headings are captured
     headings = [s['heading'] for s in sections]
-    assert 'First Section' in headings
-    assert 'Second Section' in headings
+    assert 'Liability Coverage' in headings
+    assert 'Comprehensive Protection' in headings
+    # No boilerplate in any section
+    for s in sections:
+        assert 'Menu' not in s['text']
+        assert 'reCAPTCHA' not in s['text']
     # Positions are sequential
     for i, s in enumerate(sections):
         assert s['position'] == i
@@ -213,16 +229,18 @@ def test_extract_sections_merges_small():
 
 
 def test_extract_sections_table_content():
-    """Tables should be converted to readable text, not stripped."""
+    """Tables in trafilatura output should be preserved in sections."""
     from src.core.seo_extractor import SEOExtractor
+    # trafilatura includes table content when include_tables=True
+    # Simulate clean_text that includes table data
     html = '''<html><body>
     <h2>Data Table</h2>
     <table><tr><th>Name</th><th>Value</th></tr><tr><td>Alpha</td><td>100</td></tr><tr><td>Beta</td><td>200</td></tr></table>
     <p>Additional paragraph content with enough words to make the section meaningful for testing purposes here.</p>
     </body></html>'''
-    sections = SEOExtractor.extract_sections(html, title='Test')
+    clean_text = "Data Table\nAlpha 100\nBeta 200\nAdditional paragraph content with enough words to make the section meaningful for testing purposes here."
+    sections = SEOExtractor.extract_sections(html, title='Test', clean_text=clean_text)
     assert len(sections) >= 1
-    # Find the Data Table section
     data_section = [s for s in sections if s['heading'] == 'Data Table']
     assert len(data_section) == 1
     assert 'Alpha' in data_section[0]['text']
