@@ -130,6 +130,32 @@ body {
     gap: 8px;
 }
 
+.sitemap-seed-section {
+    width: 100%;
+    margin-top: 4px;
+}
+.sitemap-toggle {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #888);
+    text-decoration: none;
+    cursor: pointer;
+}
+.sitemap-toggle:hover {
+    color: var(--text-primary, #ccc);
+}
+.sitemap-textarea {
+    width: 100%;
+    margin-top: 4px;
+    padding: 8px;
+    font-size: 0.85rem;
+    font-family: monospace;
+    background: var(--bg-secondary, #1e1e1e);
+    color: var(--text-primary, #ccc);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 4px;
+    resize: vertical;
+}
+
 .progress-container {
     margin-top: 16px;
     display: flex;
