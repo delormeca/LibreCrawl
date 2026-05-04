@@ -13,20 +13,24 @@ class SitemapParser:
         self.timeout = timeout
         self.stealth_fetcher = stealth_fetcher
 
-    def discover_sitemaps(self, base_url):
+    def discover_sitemaps(self, base_url, extra_urls=None):
         """
         Discover and parse sitemap.xml files.
         If stealth_fetcher is set, wraps all fetches in a single browser session.
+
+        Args:
+            base_url: The base URL to discover sitemaps for.
+            extra_urls: Optional list of additional sitemap URLs to fetch.
 
         Returns:
             list: List of URLs found in sitemaps
         """
         if self.stealth_fetcher:
             import asyncio
-            return asyncio.run(self._discover_sitemaps_stealth(base_url))
-        return self._discover_sitemaps_inner(base_url)
+            return asyncio.run(self._discover_sitemaps_stealth(base_url, extra_urls))
+        return self._discover_sitemaps_inner(base_url, extra_urls)
 
-    def _discover_sitemaps_inner(self, base_url):
+    def _discover_sitemaps_inner(self, base_url, extra_urls=None):
         parsed_base = urlparse(base_url)
         base_domain = f"{parsed_base.scheme}://{parsed_base.netloc}"
 
@@ -34,13 +38,20 @@ class SitemapParser:
             f"{base_domain}/sitemap.xml",
             f"{base_domain}/sitemap_index.xml",
             f"{base_domain}/sitemaps.xml",
-            f"{base_domain}/sitemap/sitemap.xml"
+            f"{base_domain}/sitemap/sitemap.xml",
+            f"{base_domain}/wp-sitemap.xml",
         ]
 
         robots_sitemaps = self._get_sitemaps_from_robots(base_domain)
         sitemap_urls.extend(robots_sitemaps)
 
-        print(f"Discovering sitemaps for {base_domain}...")
+        if extra_urls:
+            sitemap_urls.extend(extra_urls)
+
+        # Deduplicate while preserving order
+        sitemap_urls = list(dict.fromkeys(sitemap_urls))
+
+        print(f"Discovering sitemaps for {base_domain} ({len(sitemap_urls)} probes)...")
 
         all_urls = []
         for sitemap_url in sitemap_urls:
@@ -52,7 +63,7 @@ class SitemapParser:
 
         return all_urls
 
-    async def _discover_sitemaps_stealth(self, base_url):
+    async def _discover_sitemaps_stealth(self, base_url, extra_urls=None):
         """Fetch all sitemaps through a single persistent CamoFox browser."""
         renderer = self.stealth_fetcher  # This is the CamoFoxRenderer instance
         await renderer.start()
@@ -78,7 +89,8 @@ class SitemapParser:
                 f"{base_domain}/sitemap.xml",
                 f"{base_domain}/sitemap_index.xml",
                 f"{base_domain}/sitemaps.xml",
-                f"{base_domain}/sitemap/sitemap.xml"
+                f"{base_domain}/sitemap/sitemap.xml",
+                f"{base_domain}/wp-sitemap.xml",
             ]
 
             # Fetch robots.txt for sitemaps
@@ -94,7 +106,13 @@ class SitemapParser:
             except Exception as e:
                 print(f"Could not fetch robots.txt: {e}")
 
-            print(f"Discovering sitemaps for {base_domain}...")
+            if extra_urls:
+                sitemap_urls.extend(extra_urls)
+
+            # Deduplicate while preserving order
+            sitemap_urls = list(dict.fromkeys(sitemap_urls))
+
+            print(f"Discovering sitemaps for {base_domain} ({len(sitemap_urls)} probes)...")
 
             all_urls = []
             await self._parse_sitemap_async(sitemap_urls, all_urls, async_fetch)
