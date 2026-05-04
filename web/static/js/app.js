@@ -2069,10 +2069,11 @@ async function runExportAll() {
         issues:     document.getElementById('exp-issues').checked,
         images:     document.getElementById('exp-images').checked,
         embeddings: document.getElementById('exp-embeddings')?.checked || false,
+        linkgraph:  document.getElementById('exp-linkgraph')?.checked || false,
     };
 
     // Must pick at least one
-    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images && !opts.embeddings) {
+    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images && !opts.embeddings && !opts.linkgraph) {
         showNotification('Select at least one export option', 'error');
         return;
     }

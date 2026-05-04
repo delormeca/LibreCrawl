@@ -1786,6 +1786,7 @@ def export_all():
         inc_issues     = options.get('issues', True)
         inc_images     = options.get('images', True)
         inc_embeddings = options.get('embeddings', False)
+        inc_linkgraph  = options.get('linkgraph', False)
 
         # Use local data if provided (loaded crawl), otherwise get from crawler
         if local_data and local_data.get('urls'):
@@ -1942,6 +1943,14 @@ def export_all():
                             'data': embed_data
                         }, indent=2)
                         zf.writestr(f'librecrawl_embeddings_{ts_file}.json', embed_json)
+
+            # 7. LinkGraph JSON (self-contained internal linking analysis file)
+            if inc_linkgraph:
+                crawl_id = session.get('current_crawl_id')
+                if crawl_id:
+                    linkgraph_content = generate_linkgraph_json_export(crawl_id)
+                    if linkgraph_content:
+                        zf.writestr(f'librecrawl_linkgraph_{ts_file}.json', linkgraph_content)
 
         buf.seek(0)
         return send_file(
