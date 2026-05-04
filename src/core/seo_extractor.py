@@ -65,21 +65,15 @@ class SEOExtractor:
     )
 
     @staticmethod
-    def extract_body_text(html_content, result):
-        """Extract clean main body text using pre-clean + trafilatura.
-
-        1. Pre-clean: strip nav, header, footer, aside, cookie banners, etc.
-        2. Extract with trafilatura (readability fallback built-in).
-        """
+    def _clean_soup(html_content):
+        """Shared boilerplate removal. Returns cleaned BeautifulSoup object."""
         if not html_content:
-            result['body_text'] = ''
-            return
+            return None
 
-        # Pre-clean: remove boilerplate tags from a copy of the HTML
         try:
             clean_soup = BeautifulSoup(html_content, 'html.parser')
 
-            # Remove script/style (trafilatura does this too, but belt+suspenders)
+            # Remove script/style
             for tag in clean_soup.find_all(['script', 'style']):
                 tag.decompose()
 
@@ -100,21 +94,167 @@ class SEOExtractor:
                    SEOExtractor._BOILERPLATE_PATTERNS.search(tag_id):
                     tag.decompose()
 
-            cleaned_html = str(clean_soup)
+            return clean_soup
         except Exception:
-            cleaned_html = html_content
+            return BeautifulSoup(html_content, 'html.parser')
 
-        # Extract with trafilatura
+    @staticmethod
+    def extract_body_text(html_content, result):
+        """Extract clean main body text using pre-clean + trafilatura."""
+        import unicodedata
+
+        if not html_content:
+            result['body_text'] = ''
+            return
+
+        clean_soup = SEOExtractor._clean_soup(html_content)
+        if not clean_soup:
+            result['body_text'] = ''
+            return
+
         try:
+            cleaned_html = str(clean_soup)
             body = trafilatura.extract(
                 cleaned_html,
                 include_comments=False,
                 include_tables=True,
                 no_fallback=False,
+                favor_precision=True,
             )
-            result['body_text'] = (body or '').strip()
+            text = (body or '').strip()
+            text = unicodedata.normalize('NFKC', text)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            result['body_text'] = text
         except Exception:
             result['body_text'] = ''
+
+    @staticmethod
+    def extract_sections(html_content, title=''):
+        """Split page content into heading-delimited sections for embedding.
+
+        Returns list of {heading, heading_level, text, word_count, position}.
+        Sections < 30 words are merged into the previous section.
+        Pages with no headings return a single section with the full text.
+        """
+        import unicodedata
+
+        clean_soup = SEOExtractor._clean_soup(html_content)
+        if not clean_soup:
+            return []
+
+        # Find all H2 and H3 elements in document order
+        headings = clean_soup.find_all(['h2', 'h3'])
+
+        if not headings:
+            # Fallback: single section with all content
+            full_text = clean_soup.get_text(separator='\n', strip=True)
+            full_text = unicodedata.normalize('NFKC', full_text)
+            full_text = re.sub(r'\n{3,}', '\n\n', full_text).strip()
+            words = re.findall(r'\b\w+\b', full_text)
+            if not full_text:
+                return []
+            return [{
+                'heading': title or 'Introduction',
+                'heading_level': 1,
+                'text': full_text,
+                'word_count': len(words),
+                'position': 0,
+            }]
+
+        sections = []
+
+        # Collect content BEFORE first heading (intro section)
+        intro_parts = []
+        container = clean_soup.body if clean_soup.body else clean_soup
+        for child in container.children:
+            if child is headings[0]:
+                break
+            text = child.get_text(separator='\n', strip=True) if hasattr(child, 'get_text') else str(child).strip()
+            if text:
+                intro_parts.append(text)
+
+        if intro_parts:
+            intro_text = '\n\n'.join(intro_parts)
+            intro_text = unicodedata.normalize('NFKC', intro_text)
+            intro_text = re.sub(r'\n{3,}', '\n\n', intro_text).strip()
+            h1 = clean_soup.find('h1')
+            sections.append({
+                'heading': h1.get_text(strip=True) if h1 else (title or 'Introduction'),
+                'heading_level': 1,
+                'text': intro_text,
+                'word_count': len(re.findall(r'\b\w+\b', intro_text)),
+            })
+
+        # Collect content for each heading
+        for i, heading in enumerate(headings):
+            heading_text = heading.get_text(strip=True)
+            heading_level = int(heading.name[1])  # 'h2' -> 2
+
+            # Determine the stop point: next heading of same or higher level
+            next_stop = None
+            for future_heading in headings[i + 1:]:
+                future_level = int(future_heading.name[1])
+                if future_level <= heading_level:
+                    next_stop = future_heading
+                    break
+
+            # Collect sibling content between this heading and the stop point
+            content_parts = []
+            sibling = heading.find_next_sibling()
+            while sibling:
+                # Stop at the boundary heading (use 'is' for identity, not '==' which compares content)
+                if sibling is next_stop:
+                    break
+                # Skip sub-headings (they'll be their own sections)
+                if sibling.name in ['h2', 'h3']:
+                    sibling = sibling.find_next_sibling()
+                    continue
+                # Tables get readable text
+                if sibling.name == 'table':
+                    table_text = SEOExtractor._table_to_text(sibling)
+                    if table_text:
+                        content_parts.append(table_text)
+                else:
+                    text = sibling.get_text(separator='\n', strip=True) if hasattr(sibling, 'get_text') else str(sibling).strip()
+                    if text:
+                        content_parts.append(text)
+                sibling = sibling.find_next_sibling()
+
+            section_text = '\n\n'.join(content_parts)
+            section_text = unicodedata.normalize('NFKC', section_text)
+            section_text = re.sub(r'\n{3,}', '\n\n', section_text).strip()
+
+            sections.append({
+                'heading': heading_text,
+                'heading_level': heading_level,
+                'text': section_text,
+                'word_count': len(re.findall(r'\b\w+\b', section_text)),
+            })
+
+        # Merge small sections (< 30 words) into previous
+        merged = []
+        for section in sections:
+            if merged and section['word_count'] < 30:
+                merged[-1]['text'] += '\n\n' + section['text']
+                merged[-1]['word_count'] += section['word_count']
+            else:
+                merged.append(section)
+
+        # Assign positions
+        for i, section in enumerate(merged):
+            section['position'] = i
+
+        return merged
+
+    @staticmethod
+    def _table_to_text(table_element):
+        """Convert a table to readable row-by-row text."""
+        rows = []
+        for tr in table_element.find_all('tr'):
+            cells = [td.get_text(strip=True) for td in tr.find_all(['td', 'th'])]
+            if any(cells):
+                rows.append(' | '.join(cells))
+        return '\n'.join(rows)
 
     @staticmethod
     def extract_meta_tags(soup, result):

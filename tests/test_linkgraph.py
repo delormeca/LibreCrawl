@@ -108,6 +108,134 @@ def test_save_links_with_enriched_data(temp_db):
     assert attrs['data']['track'] == 'click'
 
 
+# --- SEOExtractor Tests ---
+
+def test_clean_soup_removes_boilerplate():
+    """_clean_soup should strip nav, header, footer, scripts, cookie banners."""
+    from src.core.seo_extractor import SEOExtractor
+    html = '''<html><body>
+    <script>alert("x")</script>
+    <style>.x{color:red}</style>
+    <nav>Navigation here</nav>
+    <header>Header content</header>
+    <div id="cookie-banner">Accept cookies</div>
+    <h1>Title</h1>
+    <p>Real content paragraph.</p>
+    <footer>Footer stuff</footer>
+    </body></html>'''
+    soup = SEOExtractor._clean_soup(html)
+    text = soup.get_text()
+    assert 'alert' not in text, 'Scripts should be removed'
+    assert 'Navigation' not in text, 'Nav should be removed'
+    assert 'Footer stuff' not in text, 'Footer should be removed'
+    assert 'cookie' not in text.lower(), 'Cookie banner should be removed'
+    assert 'Real content' in text, 'Content should remain'
+
+
+def test_clean_soup_returns_none_for_empty():
+    """_clean_soup returns None for empty input."""
+    from src.core.seo_extractor import SEOExtractor
+    assert SEOExtractor._clean_soup('') is None
+    assert SEOExtractor._clean_soup(None) is None
+
+
+def test_extract_body_text_uses_clean_soup():
+    """extract_body_text should use _clean_soup and trafilatura."""
+    from src.core.seo_extractor import SEOExtractor
+    html = '''<html><body>
+    <nav>Skip this nav</nav>
+    <h1>Main Title</h1>
+    <p>This is a substantial paragraph with enough words to ensure trafilatura considers it
+    real content rather than boilerplate. We need multiple sentences to get past the precision
+    filter. The quick brown fox jumps over the lazy dog in various creative ways.</p>
+    <p>Another paragraph to add substance and ensure extraction works properly with the
+    favor_precision flag enabled. More content helps trafilatura do its job well.</p>
+    </body></html>'''
+    result = {}
+    SEOExtractor.extract_body_text(html, result)
+    assert len(result['body_text']) > 0, 'Should extract body text'
+    assert 'Skip this nav' not in result['body_text'], 'Nav should be stripped'
+
+
+def test_extract_sections_with_headings():
+    """extract_sections splits content by H2/H3 headings."""
+    from src.core.seo_extractor import SEOExtractor
+    # Each paragraph must be >30 words to avoid being merged into the previous section
+    html = '''<html><body>
+    <h1>Page Title</h1>
+    <p>Intro paragraph with enough words to pass the thirty word minimum for section extraction testing purposes here and more words to be safe about it and even more padding words.</p>
+    <h2>First Section</h2>
+    <p>Content under first section with enough words to exceed the thirty word minimum threshold for the merge logic testing purposes here and additional padding to be safe and ensure quality.</p>
+    <h3>Subsection A</h3>
+    <p>Content under subsection A with enough words to exceed the thirty word minimum threshold for testing purposes and verification and extra padding words to ensure this section stands alone independently.</p>
+    <h2>Second Section</h2>
+    <p>Content under second section with enough words to be independently meaningful for embedding and vectorization purposes here plus additional padding words to ensure standalone viability of this section and more words to exceed the absolute minimum threshold.</p>
+    </body></html>'''
+    sections = SEOExtractor.extract_sections(html, title='Page Title')
+    assert len(sections) >= 3, f'Expected >= 3 sections, got {len(sections)}'
+    # First section should be intro
+    assert sections[0]['heading_level'] == 1
+    assert sections[0]['position'] == 0
+    # Check headings are captured
+    headings = [s['heading'] for s in sections]
+    assert 'First Section' in headings
+    assert 'Second Section' in headings
+    # Positions are sequential
+    for i, s in enumerate(sections):
+        assert s['position'] == i
+
+
+def test_extract_sections_no_headings_fallback():
+    """Pages with no H2/H3 return a single section with full text."""
+    from src.core.seo_extractor import SEOExtractor
+    html = '<html><body><p>Just a paragraph with no headings at all but with enough words to be meaningful content for testing.</p></body></html>'
+    sections = SEOExtractor.extract_sections(html, title='My Page')
+    assert len(sections) == 1
+    assert sections[0]['heading'] == 'My Page'
+    assert sections[0]['heading_level'] == 1
+    assert sections[0]['position'] == 0
+    assert sections[0]['word_count'] > 0
+
+
+def test_extract_sections_merges_small():
+    """Sections under 30 words should merge into previous section."""
+    from src.core.seo_extractor import SEOExtractor
+    html = '''<html><body>
+    <h2>Big Section</h2>
+    <p>This section has plenty of words to stand on its own as an independent section for embedding and vectorization purposes here and more.</p>
+    <h2>Tiny</h2>
+    <p>Too short.</p>
+    </body></html>'''
+    sections = SEOExtractor.extract_sections(html, title='Test')
+    # "Tiny" (2 words) should be merged into "Big Section"
+    headings = [s['heading'] for s in sections]
+    assert 'Tiny' not in headings, 'Small section should be merged'
+
+
+def test_extract_sections_table_content():
+    """Tables should be converted to readable text, not stripped."""
+    from src.core.seo_extractor import SEOExtractor
+    html = '''<html><body>
+    <h2>Data Table</h2>
+    <table><tr><th>Name</th><th>Value</th></tr><tr><td>Alpha</td><td>100</td></tr><tr><td>Beta</td><td>200</td></tr></table>
+    <p>Additional paragraph content with enough words to make the section meaningful for testing purposes here.</p>
+    </body></html>'''
+    sections = SEOExtractor.extract_sections(html, title='Test')
+    assert len(sections) >= 1
+    # Find the Data Table section
+    data_section = [s for s in sections if s['heading'] == 'Data Table']
+    assert len(data_section) == 1
+    assert 'Alpha' in data_section[0]['text']
+    assert 'Beta' in data_section[0]['text']
+
+
+def test_extract_sections_empty_html():
+    """Empty HTML returns empty list."""
+    from src.core.seo_extractor import SEOExtractor
+    assert SEOExtractor.extract_sections('', title='X') == []
+    assert SEOExtractor.extract_sections(None, title='X') == []
+
+
 def test_save_links_old_format_still_works(temp_db):
     """save_links_batch works with old-format links (no enriched fields)."""
     import src.crawl_db as crawl_db
