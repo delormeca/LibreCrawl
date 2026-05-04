@@ -991,16 +991,17 @@ class WebCrawler:
             if 'text/html' in response.headers.get('content-type', ''):
                 soup = BeautifulSoup(response.content, 'html.parser')
 
-                # Extract comprehensive data using SEO extractor
-                if self.linkgraph_mode:
-                    # LinkGraph mode: basic SEO + body text + sections + enriched links
+                # --- ALWAYS: basic SEO + body text + sections + enriched links ---
+                if not self.content_vectorization_mode:
                     self.seo_extractor.extract_basic_seo_data(soup, result)
                     self.seo_extractor.extract_body_text(response.text, result)
+
+                    # Sections (for embedding/vectorization in mini-app)
                     result['sections'] = self.seo_extractor.extract_sections(
                         response.text, title=result.get('title', '')
                     )
 
-                    # Enriched link collection (replaces collect_all_links)
+                    # Enriched link collection (replaces old collect_all_links)
                     links_before = len(self.link_manager.all_links)
                     self.link_manager.collect_all_links_enriched(
                         soup, url, result['sections'], self.crawl_results
@@ -1019,27 +1020,23 @@ class WebCrawler:
                             section['url'] = url
                         self.unsaved_sections.extend(result['sections'])
 
-                elif not self.content_vectorization_mode:
-                    self.seo_extractor.extract_basic_seo_data(soup, result)
-                    self.seo_extractor.extract_meta_tags(soup, result)
-                    self.seo_extractor.extract_opengraph_tags(soup, result)
-                    self.seo_extractor.extract_twitter_tags(soup, result)
-                    self.seo_extractor.extract_json_ld(soup, result)
-                    self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
-                    self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-                    self.seo_extractor.extract_hreflang(soup, result)
-                    self.seo_extractor.extract_schema_org(soup, result)
-                else:
-                    # Content vectorization: only extract basic title/h1/meta + body text
-                    self.seo_extractor.extract_basic_seo_data(soup, result)
+                    # --- STANDARD MODE ONLY: full SEO extraction ---
+                    if not self.linkgraph_mode:
+                        self.seo_extractor.extract_meta_tags(soup, result)
+                        self.seo_extractor.extract_opengraph_tags(soup, result)
+                        self.seo_extractor.extract_twitter_tags(soup, result)
+                        self.seo_extractor.extract_json_ld(soup, result)
+                        self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
+                        self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                        self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                        self.seo_extractor.extract_hreflang(soup, result)
+                        self.seo_extractor.extract_schema_org(soup, result)
 
-                # Extract body text (standard + vectorization modes; linkgraph already did it above)
-                if not self.linkgraph_mode:
+                else:
+                    # Content vectorization mode: minimal extraction + its own link logic
+                    self.seo_extractor.extract_basic_seo_data(soup, result)
                     self.seo_extractor.extract_body_text(response.text, result)
 
-                if self.content_vectorization_mode:
-                    # Extract internal outbound links with anchor text and placement
                     internal_links = []
                     seen_urls = set()
                     for a_tag in soup.find_all('a', href=True):
@@ -1060,19 +1057,6 @@ class WebCrawler:
                                     'placement': placement,
                                 })
                     result['internal_links_out'] = json.dumps(internal_links)
-
-                # Collect all links (NOT in linkgraph mode — handled above)
-                if not self.linkgraph_mode:
-                    links_before = len(self.link_manager.all_links)
-                    self.link_manager.collect_all_links(soup, url, self.crawl_results)
-                    links_after = len(self.link_manager.all_links)
-
-                    # Track + batch new links
-                    if links_after > links_before:
-                        new_links = self.link_manager.all_links[links_before:links_after]
-                        self.user_memory.track_links(new_links)
-                        if self.db_save_enabled and not self.content_vectorization_mode:
-                            self.unsaved_links.extend(new_links)
 
                 # Extract links for further crawling
                 should_extract = (
@@ -1172,11 +1156,11 @@ class WebCrawler:
             # Parse HTML
             soup = BeautifulSoup(html_content, 'html.parser')
 
-            # Extract comprehensive data
-            if self.linkgraph_mode:
-                # LinkGraph mode: basic SEO + body text + sections + enriched links
+            # --- ALWAYS: basic SEO + body text + sections + enriched links ---
+            if not self.content_vectorization_mode:
                 self.seo_extractor.extract_basic_seo_data(soup, result)
                 self.seo_extractor.extract_body_text(html_content, result)
+
                 result['sections'] = self.seo_extractor.extract_sections(
                     html_content, title=result.get('title', '')
                 )
@@ -1198,25 +1182,23 @@ class WebCrawler:
                         section['url'] = url
                     self.unsaved_sections.extend(result['sections'])
 
-            elif not self.content_vectorization_mode:
-                self.seo_extractor.extract_basic_seo_data(soup, result)
-                self.seo_extractor.extract_meta_tags(soup, result)
-                self.seo_extractor.extract_opengraph_tags(soup, result)
-                self.seo_extractor.extract_twitter_tags(soup, result)
-                self.seo_extractor.extract_json_ld(soup, result)
-                self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
-                self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-                self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-                self.seo_extractor.extract_hreflang(soup, result)
-                self.seo_extractor.extract_schema_org(soup, result)
-            else:
-                self.seo_extractor.extract_basic_seo_data(soup, result)
+                # --- STANDARD MODE ONLY: full SEO extraction ---
+                if not self.linkgraph_mode:
+                    self.seo_extractor.extract_meta_tags(soup, result)
+                    self.seo_extractor.extract_opengraph_tags(soup, result)
+                    self.seo_extractor.extract_twitter_tags(soup, result)
+                    self.seo_extractor.extract_json_ld(soup, result)
+                    self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
+                    self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                    self.seo_extractor.extract_hreflang(soup, result)
+                    self.seo_extractor.extract_schema_org(soup, result)
 
-            # Extract body text (standard + vectorization modes; linkgraph already did it above)
-            if not self.linkgraph_mode:
+            else:
+                # Content vectorization mode: minimal extraction + its own link logic
+                self.seo_extractor.extract_basic_seo_data(soup, result)
                 self.seo_extractor.extract_body_text(html_content, result)
 
-            if self.content_vectorization_mode:
                 internal_links = []
                 seen_urls = set()
                 for a_tag in soup.find_all('a', href=True):
@@ -1237,19 +1219,6 @@ class WebCrawler:
                                 'placement': placement,
                             })
                 result['internal_links_out'] = json.dumps(internal_links)
-
-            # Collect all links (NOT in linkgraph mode — handled above)
-            if not self.linkgraph_mode:
-                links_before = len(self.link_manager.all_links)
-                self.link_manager.collect_all_links(soup, url, self.crawl_results)
-                links_after = len(self.link_manager.all_links)
-
-                # Track + batch new links
-                if links_after > links_before:
-                    new_links = self.link_manager.all_links[links_before:links_after]
-                    self.user_memory.track_links(new_links)
-                    if self.db_save_enabled and not self.content_vectorization_mode:
-                        self.unsaved_links.extend(new_links)
 
             # Extract links for further crawling
             should_extract = (
