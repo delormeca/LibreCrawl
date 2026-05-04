@@ -68,6 +68,7 @@ class WebCrawler:
         # Configuration
         self.config = self._get_default_config()
         self.content_vectorization_mode = False
+        self.linkgraph_mode = False
 
         # Statistics
         self.stats = {
@@ -93,6 +94,7 @@ class WebCrawler:
         self.unsaved_urls = []
         self.unsaved_links = []
         self.unsaved_issues = []
+        self.unsaved_sections = []
         self.auto_save_thread = None
         self.db_save_enabled = False  # Only enable when crawl_id is set
 
@@ -244,6 +246,18 @@ class WebCrawler:
                     self.db_save_enabled = True
                     print(f"Database persistence enabled for crawl {self.crawl_id}")
 
+                    # Save crawl mode
+                    if self.linkgraph_mode:
+                        from src.crawl_db import get_db
+                        try:
+                            with get_db() as conn:
+                                conn.execute(
+                                    "UPDATE crawls SET crawl_mode = ? WHERE id = ?",
+                                    ('linkgraph', self.crawl_id)
+                                )
+                        except Exception as e:
+                            print(f"Warning: could not save crawl_mode: {e}")
+
             # Initialize components
             self._initialize_components()
 
@@ -320,6 +334,7 @@ class WebCrawler:
         self.memory_monitor.start_monitoring()
         self.user_memory.reset()
         self._demo_limit_reached = False
+        self.unsaved_sections = []
 
     def _discover_and_add_sitemap_urls(self, base_url):
         """Discover sitemaps and add URLs to crawl queue"""
@@ -583,7 +598,7 @@ class WebCrawler:
         if not self.db_save_enabled or not self.crawl_id:
             return
 
-        from src.crawl_db import save_url_batch, save_links_batch, save_issues_batch, update_crawl_stats
+        from src.crawl_db import save_url_batch, save_links_batch, save_issues_batch, save_sections_batch, update_crawl_stats
 
         try:
             # Save URLs
@@ -600,6 +615,11 @@ class WebCrawler:
             if self.unsaved_issues:
                 save_issues_batch(self.crawl_id, self.unsaved_issues)
                 self.unsaved_issues.clear()
+
+            # Save sections (linkgraph mode)
+            if self.unsaved_sections:
+                save_sections_batch(self.crawl_id, self.unsaved_sections)
+                self.unsaved_sections.clear()
 
             # Update statistics
             memory_stats = self.memory_monitor.get_stats()
@@ -699,6 +719,12 @@ class WebCrawler:
         self.content_vectorization_mode = enabled
         self.config['content_vectorization_mode'] = enabled
 
+    def set_linkgraph_mode(self, enabled):
+        """Enable linkgraph mode.
+        Extracts content sections + enriched links, skips SEO analysis."""
+        self.linkgraph_mode = enabled
+        self.config['linkgraph_mode'] = enabled
+
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
         # Discover sitemaps first (runs in this thread, not the HTTP request thread)
@@ -764,8 +790,8 @@ class WebCrawler:
                                     # Track per-user memory
                                     self.user_memory.track_url(result)
 
-                                    # Detect issues (skip in content vectorization mode)
-                                    if not self.content_vectorization_mode:
+                                    # Detect issues (skip in content vectorization and linkgraph modes)
+                                    if not self.content_vectorization_mode and not self.linkgraph_mode:
                                         issues_before = len(self.issue_detector.detected_issues)
                                         self.issue_detector.detect_issues(result)
                                         issues_after = len(self.issue_detector.detected_issues)
@@ -819,8 +845,8 @@ class WebCrawler:
             # Update all linked_from fields before completing
             self._update_all_linked_from()
 
-            # Run duplication detection on all crawled content
-            if self.issue_detector and self.config.get('enable_duplication_check', True):
+            # Run duplication detection on all crawled content (skip in linkgraph mode)
+            if self.issue_detector and self.config.get('enable_duplication_check', True) and not self.linkgraph_mode:
                 print("Running duplication detection...")
                 duplication_threshold = self.config.get('duplication_threshold', 0.85)
                 self.issue_detector.detect_duplication_issues(self.crawl_results, duplication_threshold)
@@ -966,7 +992,34 @@ class WebCrawler:
                 soup = BeautifulSoup(response.content, 'html.parser')
 
                 # Extract comprehensive data using SEO extractor
-                if not self.content_vectorization_mode:
+                if self.linkgraph_mode:
+                    # LinkGraph mode: basic SEO + body text + sections + enriched links
+                    self.seo_extractor.extract_basic_seo_data(soup, result)
+                    self.seo_extractor.extract_body_text(response.text, result)
+                    result['sections'] = self.seo_extractor.extract_sections(
+                        response.text, title=result.get('title', '')
+                    )
+
+                    # Enriched link collection (replaces collect_all_links)
+                    links_before = len(self.link_manager.all_links)
+                    self.link_manager.collect_all_links_enriched(
+                        soup, url, result['sections'], self.crawl_results
+                    )
+                    links_after = len(self.link_manager.all_links)
+
+                    if links_after > links_before:
+                        new_links = self.link_manager.all_links[links_before:links_after]
+                        self.user_memory.track_links(new_links)
+                        if self.db_save_enabled:
+                            self.unsaved_links.extend(new_links)
+
+                    # Save sections to DB
+                    if self.db_save_enabled and result.get('sections'):
+                        for section in result['sections']:
+                            section['url'] = url
+                        self.unsaved_sections.extend(result['sections'])
+
+                elif not self.content_vectorization_mode:
                     self.seo_extractor.extract_basic_seo_data(soup, result)
                     self.seo_extractor.extract_meta_tags(soup, result)
                     self.seo_extractor.extract_opengraph_tags(soup, result)
@@ -981,8 +1034,9 @@ class WebCrawler:
                     # Content vectorization: only extract basic title/h1/meta + body text
                     self.seo_extractor.extract_basic_seo_data(soup, result)
 
-                # Always extract body text (both modes need it)
-                self.seo_extractor.extract_body_text(response.text, result)
+                # Extract body text (standard + vectorization modes; linkgraph already did it above)
+                if not self.linkgraph_mode:
+                    self.seo_extractor.extract_body_text(response.text, result)
 
                 if self.content_vectorization_mode:
                     # Extract internal outbound links with anchor text and placement
@@ -1007,17 +1061,18 @@ class WebCrawler:
                                 })
                     result['internal_links_out'] = json.dumps(internal_links)
 
-                # Collect all links
-                links_before = len(self.link_manager.all_links)
-                self.link_manager.collect_all_links(soup, url, self.crawl_results)
-                links_after = len(self.link_manager.all_links)
+                # Collect all links (NOT in linkgraph mode — handled above)
+                if not self.linkgraph_mode:
+                    links_before = len(self.link_manager.all_links)
+                    self.link_manager.collect_all_links(soup, url, self.crawl_results)
+                    links_after = len(self.link_manager.all_links)
 
-                # Track + batch new links
-                if links_after > links_before:
-                    new_links = self.link_manager.all_links[links_before:links_after]
-                    self.user_memory.track_links(new_links)
-                    if self.db_save_enabled and not self.content_vectorization_mode:
-                        self.unsaved_links.extend(new_links)
+                    # Track + batch new links
+                    if links_after > links_before:
+                        new_links = self.link_manager.all_links[links_before:links_after]
+                        self.user_memory.track_links(new_links)
+                        if self.db_save_enabled and not self.content_vectorization_mode:
+                            self.unsaved_links.extend(new_links)
 
                 # Extract links for further crawling
                 should_extract = (
@@ -1118,7 +1173,32 @@ class WebCrawler:
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # Extract comprehensive data
-            if not self.content_vectorization_mode:
+            if self.linkgraph_mode:
+                # LinkGraph mode: basic SEO + body text + sections + enriched links
+                self.seo_extractor.extract_basic_seo_data(soup, result)
+                self.seo_extractor.extract_body_text(html_content, result)
+                result['sections'] = self.seo_extractor.extract_sections(
+                    html_content, title=result.get('title', '')
+                )
+
+                links_before = len(self.link_manager.all_links)
+                self.link_manager.collect_all_links_enriched(
+                    soup, url, result['sections'], self.crawl_results
+                )
+                links_after = len(self.link_manager.all_links)
+
+                if links_after > links_before:
+                    new_links = self.link_manager.all_links[links_before:links_after]
+                    self.user_memory.track_links(new_links)
+                    if self.db_save_enabled:
+                        self.unsaved_links.extend(new_links)
+
+                if self.db_save_enabled and result.get('sections'):
+                    for section in result['sections']:
+                        section['url'] = url
+                    self.unsaved_sections.extend(result['sections'])
+
+            elif not self.content_vectorization_mode:
                 self.seo_extractor.extract_basic_seo_data(soup, result)
                 self.seo_extractor.extract_meta_tags(soup, result)
                 self.seo_extractor.extract_opengraph_tags(soup, result)
@@ -1132,8 +1212,9 @@ class WebCrawler:
             else:
                 self.seo_extractor.extract_basic_seo_data(soup, result)
 
-            # Always extract body text (both modes need it)
-            self.seo_extractor.extract_body_text(html_content, result)
+            # Extract body text (standard + vectorization modes; linkgraph already did it above)
+            if not self.linkgraph_mode:
+                self.seo_extractor.extract_body_text(html_content, result)
 
             if self.content_vectorization_mode:
                 internal_links = []
@@ -1157,17 +1238,18 @@ class WebCrawler:
                             })
                 result['internal_links_out'] = json.dumps(internal_links)
 
-            # Collect all links
-            links_before = len(self.link_manager.all_links)
-            self.link_manager.collect_all_links(soup, url, self.crawl_results)
-            links_after = len(self.link_manager.all_links)
+            # Collect all links (NOT in linkgraph mode — handled above)
+            if not self.linkgraph_mode:
+                links_before = len(self.link_manager.all_links)
+                self.link_manager.collect_all_links(soup, url, self.crawl_results)
+                links_after = len(self.link_manager.all_links)
 
-            # Track + batch new links
-            if links_after > links_before:
-                new_links = self.link_manager.all_links[links_before:links_after]
-                self.user_memory.track_links(new_links)
-                if self.db_save_enabled and not self.content_vectorization_mode:
-                    self.unsaved_links.extend(new_links)
+                # Track + batch new links
+                if links_after > links_before:
+                    new_links = self.link_manager.all_links[links_before:links_after]
+                    self.user_memory.track_links(new_links)
+                    if self.db_save_enabled and not self.content_vectorization_mode:
+                        self.unsaved_links.extend(new_links)
 
             # Extract links for further crawling
             should_extract = (
