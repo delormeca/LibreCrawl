@@ -82,17 +82,23 @@ class CamoFoxRenderer:
         'fonts.googleapis.com', 'fonts.gstatic.com',
     }
 
+    # Domains that must NEVER be blocked (Cloudflare challenge scripts)
+    _ALLOWED_DOMAINS = {'cloudflare.com', 'cloudflareinsights.com'}
+
     @staticmethod
     async def _block_heavy_resources(route):
         url = route.request.url
-        # Block by resource type
+        # Block by resource type (images, media, fonts)
         if route.request.resource_type in CamoFoxRenderer._BLOCKED_TYPES:
             await route.abort()
             return
-        # Block third-party tracking/analytics domains
+        # Block third-party tracking/analytics domains (but never Cloudflare)
         try:
             from urllib.parse import urlparse
             domain = urlparse(url).hostname or ''
+            if any(domain.endswith(d) for d in CamoFoxRenderer._ALLOWED_DOMAINS):
+                await route.continue_()
+                return
             if any(domain.endswith(d) for d in CamoFoxRenderer._BLOCKED_DOMAINS):
                 await route.abort()
                 return
