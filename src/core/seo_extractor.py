@@ -58,7 +58,9 @@ class SEOExtractor:
     _BOILERPLATE_PATTERNS = re.compile(
         r'(nav|header|footer|sidebar|menu|cookie|banner|popup|modal|breadcrumb|'
         r'social|share|widget|advertisement|ad-|ads-|advert|newsletter|signup|'
-        r'subscribe|related-posts|comment)',
+        r'subscribe|related-posts|comment|'
+        r'consent|gdpr|onetrust|cc-banner|cc-window|privacy-notice|'
+        r'CookieConsent|cookie-notice|cookie-law|cookie-bar|cookie-alert)',
         re.IGNORECASE
     )
 

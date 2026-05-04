@@ -34,6 +34,7 @@ async function openDashboard() {
                         <th style="width: 180px;">Date</th>
                         <th style="width: 200px;">Domain</th>
                         <th style="width: 80px;">URLs</th>
+                        <th style="width: 70px;">Age</th>
                         <th style="width: 100px;">Status</th>
                         <th style="width: 280px;">Actions</th>
                     </tr>
@@ -47,11 +48,33 @@ async function openDashboard() {
             const status = crawl.status || 'unknown';
             const statusColor = status === 'completed' ? '#10b981' : status === 'running' ? '#3b82f6' : status === 'paused' ? '#f59e0b' : '#6b7280';
 
+            // Calculate age
+            const ageMs = Date.now() - new Date(crawl.started_at).getTime();
+            const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+            let ageText, ageColor;
+            if (ageDays === 0) {
+                ageText = 'Today';
+                ageColor = '#10b981';
+            } else if (ageDays === 1) {
+                ageText = '1 day';
+                ageColor = '#10b981';
+            } else if (ageDays <= 30) {
+                ageText = `${ageDays} days`;
+                ageColor = '#9ca3af';
+            } else if (ageDays <= 60) {
+                ageText = `${ageDays} days`;
+                ageColor = '#f59e0b';
+            } else {
+                ageText = `${ageDays} days`;
+                ageColor = '#ef4444';
+            }
+
             html += `
                 <tr>
                     <td>${date}</td>
                     <td>${domain}</td>
                     <td>${crawl.urls_crawled || 0}</td>
+                    <td><span style="color: ${ageColor};">${ageText}</span></td>
                     <td><span style="color: ${statusColor};">${status}</span></td>
                     <td style="white-space: nowrap;">
                         <button class="btn btn-primary" style="margin-right: 5px; padding: 6px 12px; font-size: 13px;" onclick="loadCrawlFromDashboard(${crawl.id})">Load</button>

@@ -414,7 +414,19 @@ function pollCrawlProgress() {
             if (data.is_running_pagespeed) {
                 updateStatus('Running PageSpeed analysis...');
             } else if (data.status === 'running') {
-                updateStatus('Crawling in progress...');
+                const stats = data.stats || {};
+                const crawled = stats.crawled || 0;
+                const discovered = stats.discovered || 0;
+                const speed = stats.speed || 0;
+
+                if (discovered === 0 && crawled === 0) {
+                    updateStatus('Parsing sitemaps...');
+                } else if (discovered > 0 && crawled === 0) {
+                    updateStatus(`Sitemap discovery complete — ${discovered} URLs found. Starting crawl...`);
+                } else {
+                    const rate = speed > 0 ? speed.toFixed(2) : '—';
+                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec`);
+                }
             }
 
             // Update visualization if visualization tab is active

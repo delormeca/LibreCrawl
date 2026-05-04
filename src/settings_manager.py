@@ -109,9 +109,9 @@ class SettingsManager:
 
             # Advanced settings
             'concurrency': 5,
-            'memoryLimit': 512,
+            'memoryLimit': 1024,
             'logLevel': 'INFO',
-            'saveSession': False,
+            'saveSession': True,
             'enableProxy': False,
             'proxyUrl': '',
             'customHeaders': '',
@@ -119,7 +119,7 @@ class SettingsManager:
             # JavaScript rendering settings
             'enableJavaScript': False,
             'jsWaitTime': 3,
-            'jsTimeout': 30,
+            'jsTimeout': 60,
             'jsBrowser': 'chromium',
             'jsHeadless': True,
             'jsUserAgent': 'LibreCrawl/1.0 (Web Crawler with JavaScript)',

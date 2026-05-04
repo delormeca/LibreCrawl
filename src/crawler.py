@@ -247,6 +247,18 @@ class WebCrawler:
             # Initialize components
             self._initialize_components()
 
+            # Apply proxy to HTTP session before any requests
+            if self.config.get('enable_proxy') and self.config.get('proxy_url'):
+                self.session.proxies = {
+                    'http': self.config['proxy_url'],
+                    'https': self.config['proxy_url']
+                }
+
+            # In stealth mode, give sitemap parser a CamoFox renderer for fetching
+            if self.config.get('stealth_mode', False):
+                from src.core.camoufox_renderer import CamoFoxRenderer
+                self.sitemap_parser.stealth_fetcher = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+
             # Reset state
             self._reset_state()
 
@@ -1035,9 +1047,6 @@ class WebCrawler:
         try:
             # Use CamoFox if stealth mode is enabled
             if self.config.get('stealth_mode', False):
-                if not self.camoufox_renderer:
-                    from src.core.camoufox_renderer import CamoFoxRenderer
-                    self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                 html_content, status_code = await self.camoufox_renderer.render_page(
                     url,
                     wait_time=self.config.get('js_wait_time', 3),
@@ -1179,6 +1188,7 @@ class WebCrawler:
             return result
 
         except Exception as e:
+            print(f"STATUS 0: {url} — {e}")
             return self.seo_extractor.create_empty_result(url, depth, 0, f'JavaScript rendering error: {str(e)}')
 
     async def _crawl_async_with_js(self):
@@ -1186,6 +1196,12 @@ class WebCrawler:
         try:
             # Initialize JavaScript renderer
             await self.js_renderer.initialize()
+
+            # Launch CamoFox for crawling (fresh instance — sitemap one was on a different event loop)
+            if self.config.get('stealth_mode', False):
+                from src.core.camoufox_renderer import CamoFoxRenderer
+                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                await self.camoufox_renderer.start()
 
             max_workers = self.config.get('js_max_concurrent_pages', 3)
             active_tasks = set()
@@ -1290,6 +1306,8 @@ class WebCrawler:
 
             # Clean up
             await self.js_renderer.cleanup()
+            if self.camoufox_renderer:
+                await self.camoufox_renderer.stop()
             self.is_running = False
             print(f"Crawl completed. Discovered: {self.stats['discovered']}, Crawled: {self.stats['crawled']}")
 

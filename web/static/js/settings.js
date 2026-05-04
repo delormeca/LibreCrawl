@@ -288,6 +288,38 @@ function setupSettingsEventHandlers() {
         });
     }
 
+    // Stealth mode checkbox handler — auto-adjust settings for CamoFox
+    const stealthModeCheckbox = document.getElementById('stealthMode');
+    if (stealthModeCheckbox) {
+        stealthModeCheckbox.addEventListener('change', function() {
+            const notice = document.getElementById('stealthAutoNotice');
+            if (this.checked) {
+                // Save original values so we can restore on uncheck
+                stealthModeCheckbox._prevConcurrency = document.getElementById('concurrency').value;
+                stealthModeCheckbox._prevMemoryLimit = document.getElementById('memoryLimit').value;
+                stealthModeCheckbox._prevJsTimeout = document.getElementById('jsTimeout').value;
+                stealthModeCheckbox._prevJsWaitTime = document.getElementById('jsWaitTime').value;
+
+                // Auto-adjust for CamoFox + proxy
+                document.getElementById('concurrency').value = 3;
+                document.getElementById('memoryLimit').value = 1024;
+                document.getElementById('jsTimeout').value = 60;
+                document.getElementById('jsWaitTime').value = 1;
+
+                if (notice) notice.style.display = 'block';
+            } else {
+                // Restore previous values
+                if (stealthModeCheckbox._prevConcurrency) {
+                    document.getElementById('concurrency').value = stealthModeCheckbox._prevConcurrency;
+                    document.getElementById('memoryLimit').value = stealthModeCheckbox._prevMemoryLimit;
+                    document.getElementById('jsTimeout').value = stealthModeCheckbox._prevJsTimeout;
+                    document.getElementById('jsWaitTime').value = stealthModeCheckbox._prevJsWaitTime;
+                }
+                if (notice) notice.style.display = 'none';
+            }
+        });
+    }
+
     // JavaScript checkbox handler
     const enableJavaScriptCheckbox = document.getElementById('enableJavaScript');
     if (enableJavaScriptCheckbox) {
