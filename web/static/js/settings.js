@@ -299,12 +299,14 @@ function setupSettingsEventHandlers() {
                 stealthModeCheckbox._prevMemoryLimit = document.getElementById('memoryLimit').value;
                 stealthModeCheckbox._prevJsTimeout = document.getElementById('jsTimeout').value;
                 stealthModeCheckbox._prevJsWaitTime = document.getElementById('jsWaitTime').value;
+                stealthModeCheckbox._prevJsMaxConcurrent = document.getElementById('jsMaxConcurrentPages').value;
 
                 // Auto-adjust for CamoFox + proxy
                 document.getElementById('concurrency').value = 3;
                 document.getElementById('memoryLimit').value = 1024;
                 document.getElementById('jsTimeout').value = 60;
                 document.getElementById('jsWaitTime').value = 1;
+                document.getElementById('jsMaxConcurrentPages').value = 2;
 
                 if (notice) notice.style.display = 'block';
             } else {
@@ -314,6 +316,7 @@ function setupSettingsEventHandlers() {
                     document.getElementById('memoryLimit').value = stealthModeCheckbox._prevMemoryLimit;
                     document.getElementById('jsTimeout').value = stealthModeCheckbox._prevJsTimeout;
                     document.getElementById('jsWaitTime').value = stealthModeCheckbox._prevJsWaitTime;
+                    document.getElementById('jsMaxConcurrentPages').value = stealthModeCheckbox._prevJsMaxConcurrent;
                 }
                 if (notice) notice.style.display = 'none';
             }
