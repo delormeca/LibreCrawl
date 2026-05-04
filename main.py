@@ -694,6 +694,15 @@ def start_crawl():
     content_vectorization = data.get('contentVectorizationMode', False)
     crawler.set_content_vectorization_mode(content_vectorization)
 
+    # Linkgraph mode (mutually exclusive with vectorization)
+    linkgraph_mode = data.get('linkgraphMode', False)
+    if linkgraph_mode and content_vectorization:
+        return jsonify({
+            'success': False,
+            'error': 'linkgraph and vectorization modes are mutually exclusive'
+        })
+    crawler.set_linkgraph_mode(linkgraph_mode)
+
     # Enforce demo mode limits
     if DEMO_MODE:
         crawler.config['demo_mode'] = True
@@ -1428,6 +1437,162 @@ def crawl_stats():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+def generate_linkgraph_json_export(crawl_id):
+    """Generate self-contained linkgraph JSON for internal linking analysis.
+
+    Works on any crawl. Linkgraph-mode crawls get rich sections + link context.
+    Regular crawls get degraded output (body_text + basic links, no sections).
+    """
+    from src.crawl_db import (
+        get_crawl_by_id, load_crawled_urls, load_crawl_links, load_crawl_sections
+    )
+
+    crawl = get_crawl_by_id(crawl_id)
+    if not crawl:
+        return None
+
+    urls = load_crawled_urls(crawl_id)
+    links = load_crawl_links(crawl_id)
+    sections_rows = load_crawl_sections(crawl_id)
+
+    # Group sections by URL
+    sections_by_url = {}
+    for s in sections_rows:
+        url = s['url']
+        if url not in sections_by_url:
+            sections_by_url[url] = []
+        sections_by_url[url].append({
+            'heading': s.get('heading', ''),
+            'heading_level': s.get('heading_level', 2),
+            'text': s.get('text', ''),
+            'word_count': s.get('word_count', 0),
+            'position': s.get('position', 0),
+        })
+
+    # Group outgoing links by source URL
+    outgoing_by_source = {}
+    for link in links:
+        source = link['source_url']
+        if source not in outgoing_by_source:
+            outgoing_by_source[source] = {'internal': [], 'external': []}
+
+        attributes = None
+        if link.get('attributes'):
+            try:
+                attributes = json.loads(link['attributes']) if isinstance(link['attributes'], str) else link['attributes']
+            except (json.JSONDecodeError, TypeError):
+                attributes = None
+
+        link_entry = {
+            'target_url': link['target_url'],
+            'anchor_text': link.get('anchor_text', ''),
+            'context': link.get('context') or None,
+            'parent_heading': link.get('parent_heading') or None,
+            'section_position': link.get('section_position'),
+            'placement': link.get('placement', 'body'),
+            'attributes': attributes,
+        }
+
+        bucket = 'internal' if link.get('is_internal') else 'external'
+        outgoing_by_source[source][bucket].append(link_entry)
+
+    # Build incoming links (inverse of internal outgoing)
+    incoming_by_target = {}
+    for link in links:
+        if link.get('is_internal'):
+            target = link['target_url']
+            if target not in incoming_by_target:
+                incoming_by_target[target] = []
+            incoming_by_target[target].append({
+                'source_url': link['source_url'],
+                'anchor_text': link.get('anchor_text', ''),
+                'placement': link.get('placement', 'body'),
+            })
+
+    # Build pages dict
+    pages = {}
+    html_urls = set()
+    total_internal = 0
+    total_external = 0
+
+    for url_data in urls:
+        url = url_data['url']
+        content_type = url_data.get('content_type', '')
+
+        if 'text/html' not in content_type:
+            continue
+
+        html_urls.add(url)
+        outgoing = outgoing_by_source.get(url, {'internal': [], 'external': []})
+        total_internal += len(outgoing['internal'])
+        total_external += len(outgoing['external'])
+
+        pages[url] = {
+            'url': url,
+            'status_code': url_data.get('status_code'),
+            'content_type': content_type,
+            'title': url_data.get('title', ''),
+            'meta_description': url_data.get('meta_description', ''),
+            'h1': url_data.get('h1', ''),
+            'word_count': url_data.get('word_count', 0),
+            'lang': url_data.get('lang', ''),
+            'canonical_url': url_data.get('canonical_url', ''),
+            'content': {
+                'full_text': url_data.get('body_text', ''),
+                'sections': sections_by_url.get(url, []),
+            },
+            'outgoing_links': outgoing,
+            'incoming_links': incoming_by_target.get(url, []),
+        }
+
+    # Detect orphan pages (HTML pages with zero incoming internal links)
+    orphan_pages = [url for url in html_urls if url not in incoming_by_target]
+
+    # Collect non-HTML targets
+    non_html_targets = []
+    non_html_seen = set()
+    for link in links:
+        target = link['target_url']
+        if link.get('is_internal') and target not in html_urls and target not in non_html_seen:
+            non_html_seen.add(target)
+            linked_from = [
+                {'source_url': l['source_url'], 'anchor_text': l.get('anchor_text', '')}
+                for l in links
+                if l['target_url'] == target and l.get('is_internal')
+            ]
+            target_ct = ''
+            for u in urls:
+                if u['url'] == target:
+                    target_ct = u.get('content_type', '')
+                    break
+            non_html_targets.append({
+                'url': target,
+                'content_type': target_ct,
+                'linked_from': linked_from,
+            })
+
+    crawl_mode = crawl.get('crawl_mode', 'standard')
+    mode_label = 'linkgraph' if crawl_mode == 'linkgraph' else 'regular'
+    base_domain = crawl.get('base_domain', '')
+
+    result = {
+        'meta': {
+            'domain': base_domain,
+            'crawl_id': str(crawl_id),
+            'crawl_date': crawl.get('started_at', ''),
+            'mode': mode_label,
+            'total_pages': len(pages),
+            'total_internal_links': total_internal,
+            'total_external_links': total_external,
+        },
+        'pages': pages,
+        'orphan_pages': sorted(orphan_pages),
+        'non_html_targets': non_html_targets,
+    }
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 @app.route('/api/export_data', methods=['POST'])
 @login_required
 def export_data():
@@ -1436,6 +1601,23 @@ def export_data():
         export_format = data.get('format', 'csv')
         export_fields = data.get('fields', ['url', 'status_code', 'title'])
         local_data = data.get('localData', {})
+
+        # Special case: linkgraph-json export (requires crawl_id, reads from DB)
+        if export_format == 'linkgraph-json':
+            crawl_id = data.get('crawlId') or session.get('current_crawl_id')
+            if not crawl_id:
+                return jsonify({'success': False, 'error': 'No crawl ID for linkgraph export'})
+
+            content = generate_linkgraph_json_export(crawl_id)
+            if not content:
+                return jsonify({'success': False, 'error': 'Could not generate linkgraph export'})
+
+            return jsonify({
+                'success': True,
+                'content': content,
+                'mimetype': 'application/json',
+                'filename': f'librecrawl_linkgraph_{crawl_id}_{int(time.time())}.json'
+            })
 
         # Use local data if provided (from loaded crawl), otherwise get from crawler
         if local_data and local_data.get('urls'):

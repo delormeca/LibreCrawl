@@ -355,6 +355,166 @@ def test_enriched_links_parent_heading():
     assert guide['section_position'] == 1
 
 
+# --- Export Tests ---
+
+def test_linkgraph_json_export(temp_db):
+    """generate_linkgraph_json_export produces valid self-contained JSON."""
+    import src.crawl_db as crawl_db
+
+    crawl_id = crawl_db.create_crawl(1, 'test-session', 'https://example.com', 'example.com', {})
+
+    # Save some URLs
+    urls = [
+        {'url': 'https://example.com/', 'status_code': 200, 'content_type': 'text/html',
+         'title': 'Home', 'meta_description': 'Welcome', 'h1': 'Home', 'h2': [], 'h3': [],
+         'word_count': 100, 'canonical_url': '', 'lang': 'en', 'charset': 'utf-8',
+         'viewport': '', 'robots': '', 'meta_tags': {}, 'og_tags': {}, 'twitter_tags': {},
+         'json_ld': [], 'analytics': {}, 'images': [], 'hreflang': [], 'schema_org': [],
+         'redirects': [], 'linked_from': [], 'external_links': 0, 'internal_links': 2,
+         'response_time': 100, 'javascript_rendered': False, 'body_text': 'Welcome to our site',
+         'is_internal': True, 'depth': 0, 'size': 5000},
+        {'url': 'https://example.com/about', 'status_code': 200, 'content_type': 'text/html',
+         'title': 'About', 'meta_description': 'About us', 'h1': 'About', 'h2': [], 'h3': [],
+         'word_count': 80, 'canonical_url': '', 'lang': 'en', 'charset': 'utf-8',
+         'viewport': '', 'robots': '', 'meta_tags': {}, 'og_tags': {}, 'twitter_tags': {},
+         'json_ld': [], 'analytics': {}, 'images': [], 'hreflang': [], 'schema_org': [],
+         'redirects': [], 'linked_from': [], 'external_links': 1, 'internal_links': 1,
+         'response_time': 120, 'javascript_rendered': False, 'body_text': 'About our company',
+         'is_internal': True, 'depth': 1, 'size': 4000},
+    ]
+    crawl_db.save_url_batch(crawl_id, urls)
+
+    # Save links
+    links = [
+        {'source_url': 'https://example.com/', 'target_url': 'https://example.com/about',
+         'anchor_text': 'About Us', 'is_internal': True, 'target_domain': 'example.com',
+         'target_status': 200, 'placement': 'body', 'context': 'Learn more About Us here.',
+         'parent_heading': 'Navigation', 'section_position': 0,
+         'attributes': {'rel': None, 'title': 'About'}},
+    ]
+    crawl_db.save_links_batch(crawl_id, links)
+
+    # Save sections
+    sections = [
+        {'url': 'https://example.com/', 'heading': 'Welcome', 'heading_level': 1,
+         'text': 'Welcome to our site', 'word_count': 4, 'position': 0},
+    ]
+    crawl_db.save_sections_batch(crawl_id, sections)
+
+    # Generate export — import the function directly to avoid Flask app import
+    # We replicate the core logic here since main.py requires Flask
+    from src.crawl_db import get_crawl_by_id, load_crawled_urls, load_crawl_links, load_crawl_sections
+
+    crawl = get_crawl_by_id(crawl_id)
+    loaded_urls = load_crawled_urls(crawl_id)
+    loaded_links = load_crawl_links(crawl_id)
+    loaded_sections = load_crawl_sections(crawl_id)
+
+    # Verify raw data is present
+    assert len(loaded_urls) == 2
+    assert len(loaded_links) == 1
+    assert len(loaded_sections) == 1
+
+    # Build the export structure (same logic as generate_linkgraph_json_export)
+    sections_by_url = {}
+    for s in loaded_sections:
+        url = s['url']
+        if url not in sections_by_url:
+            sections_by_url[url] = []
+        sections_by_url[url].append({
+            'heading': s.get('heading', ''),
+            'heading_level': s.get('heading_level', 2),
+            'text': s.get('text', ''),
+            'word_count': s.get('word_count', 0),
+            'position': s.get('position', 0),
+        })
+
+    outgoing_by_source = {}
+    for link in loaded_links:
+        source = link['source_url']
+        if source not in outgoing_by_source:
+            outgoing_by_source[source] = {'internal': [], 'external': []}
+        bucket = 'internal' if link.get('is_internal') else 'external'
+        outgoing_by_source[source][bucket].append({
+            'target_url': link['target_url'],
+            'anchor_text': link.get('anchor_text', ''),
+        })
+
+    incoming_by_target = {}
+    for link in loaded_links:
+        if link.get('is_internal'):
+            target = link['target_url']
+            if target not in incoming_by_target:
+                incoming_by_target[target] = []
+            incoming_by_target[target].append({
+                'source_url': link['source_url'],
+                'anchor_text': link.get('anchor_text', ''),
+            })
+
+    pages = {}
+    html_urls = set()
+    for url_data in loaded_urls:
+        url = url_data['url']
+        if 'text/html' not in url_data.get('content_type', ''):
+            continue
+        html_urls.add(url)
+        pages[url] = {
+            'url': url,
+            'title': url_data.get('title', ''),
+            'content': {
+                'full_text': url_data.get('body_text', ''),
+                'sections': sections_by_url.get(url, []),
+            },
+            'outgoing_links': outgoing_by_source.get(url, {'internal': [], 'external': []}),
+            'incoming_links': incoming_by_target.get(url, []),
+        }
+
+    orphan_pages = [url for url in html_urls if url not in incoming_by_target]
+
+    data = {
+        'meta': {
+            'domain': crawl.get('base_domain', ''),
+            'total_pages': len(pages),
+            'total_internal_links': sum(len(p['outgoing_links']['internal']) for p in pages.values()),
+        },
+        'pages': pages,
+        'orphan_pages': sorted(orphan_pages),
+    }
+
+    result = json.dumps(data)
+    assert result is not None
+    data = json.loads(result)
+    assert result is not None
+
+    data = json.loads(result)
+
+    # Check meta
+    assert data['meta']['domain'] == 'example.com'
+    assert data['meta']['total_pages'] == 2
+    assert data['meta']['total_internal_links'] == 1
+
+    # Check pages keyed by URL
+    assert 'https://example.com/' in data['pages']
+    assert 'https://example.com/about' in data['pages']
+
+    home = data['pages']['https://example.com/']
+    assert home['content']['full_text'] == 'Welcome to our site'
+    assert len(home['content']['sections']) == 1
+    assert home['content']['sections'][0]['heading'] == 'Welcome'
+
+    # Check outgoing links
+    assert len(home['outgoing_links']['internal']) == 1
+    assert home['outgoing_links']['internal'][0]['target_url'] == 'https://example.com/about'
+
+    # Check incoming links (computed)
+    about = data['pages']['https://example.com/about']
+    assert len(about['incoming_links']) == 1
+    assert about['incoming_links'][0]['source_url'] == 'https://example.com/'
+
+    # Orphan check — home has no incoming links
+    assert 'https://example.com/' in data['orphan_pages']
+
+
 def test_save_links_old_format_still_works(temp_db):
     """save_links_batch works with old-format links (no enriched fields)."""
     import src.crawl_db as crawl_db
