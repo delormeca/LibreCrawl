@@ -83,3 +83,35 @@ class TestProbeDedup:
         parser._fetch = mock_fetch
         parser.discover_sitemaps('https://example.com')
         assert any('/sitemap.xml' in u for u in fetched)
+
+
+class TestCrawlerSitemapSeeding:
+    def _make_crawler(self):
+        """Create a WebCrawler with minimal init for testing."""
+        from src.crawler import WebCrawler
+        crawler = WebCrawler()
+        crawler.base_domain = 'example.com'
+        crawler._initialize_components()
+        return crawler
+
+    def test_set_user_sitemap_urls(self):
+        """Crawler should accept and store user sitemap URLs."""
+        from src.crawler import WebCrawler
+        crawler = WebCrawler()
+        crawler.set_user_sitemap_urls([
+            'https://example.com/custom-sitemap.xml'
+        ])
+        assert crawler._user_sitemap_urls == ['https://example.com/custom-sitemap.xml']
+
+    def test_sitemap_url_count_in_status(self):
+        """get_status should include sitemap_url_count."""
+        crawler = self._make_crawler()
+        crawler.sitemap_url_count = 42
+        status = crawler.get_status()
+        assert status['stats']['sitemap_url_count'] == 42
+
+    def test_sitemap_url_count_defaults_to_zero(self):
+        """sitemap_url_count should be 0 when no sitemaps found."""
+        crawler = self._make_crawler()
+        status = crawler.get_status()
+        assert status['stats']['sitemap_url_count'] == 0

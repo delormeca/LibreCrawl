@@ -69,6 +69,8 @@ class WebCrawler:
         self.config = self._get_default_config()
         self.content_vectorization_mode = False
         self.linkgraph_mode = False
+        self._user_sitemap_urls = []
+        self.sitemap_url_count = 0
 
         # Statistics
         self.stats = {
@@ -335,10 +337,11 @@ class WebCrawler:
         self.user_memory.reset()
         self._demo_limit_reached = False
         self.unsaved_sections = []
+        self.sitemap_url_count = 0
 
-    def _discover_and_add_sitemap_urls(self, base_url):
+    def _discover_and_add_sitemap_urls(self, base_url, extra_urls=None):
         """Discover sitemaps and add URLs to crawl queue"""
-        sitemap_urls = self.sitemap_parser.discover_sitemaps(base_url)
+        sitemap_urls = self.sitemap_parser.discover_sitemaps(base_url, extra_urls=extra_urls)
 
         added_count = 0
         filtered_count = 0
@@ -351,6 +354,7 @@ class WebCrawler:
                 filtered_count += 1
 
         self.stats['discovered'] = self.link_manager.get_stats()['discovered']
+        self.sitemap_url_count = added_count
         print(f"Sitemap processing: {added_count} added, {filtered_count} filtered")
 
     def stop_crawl(self):
@@ -580,7 +584,8 @@ class WebCrawler:
             'status': status,
             'stats': {
                 **self.stats,
-                'discovered': link_stats['discovered']
+                'discovered': link_stats['discovered'],
+                'sitemap_url_count': self.sitemap_url_count
             },
             'urls': self.crawl_results.copy(),
             'links': self.link_manager.all_links.copy() if self.link_manager else [],
@@ -725,6 +730,10 @@ class WebCrawler:
         self.linkgraph_mode = enabled
         self.config['linkgraph_mode'] = enabled
 
+    def set_user_sitemap_urls(self, urls):
+        """Set user-provided sitemap URLs to seed during discovery."""
+        self._user_sitemap_urls = urls or []
+
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
         # Discover sitemaps first (runs in this thread, not the HTTP request thread)
@@ -732,7 +741,7 @@ class WebCrawler:
             url = self._pending_sitemap_url
             self._pending_sitemap_url = None
             print(f"Starting sitemap discovery for {url}")
-            self._discover_and_add_sitemap_urls(url)
+            self._discover_and_add_sitemap_urls(url, extra_urls=self._user_sitemap_urls)
             print(f"Sitemap discovery completed. Total discovered URLs: {self.stats['discovered']}")
 
         # Use async approach if JavaScript rendering is enabled
