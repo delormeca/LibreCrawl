@@ -167,6 +167,23 @@ def init_crawl_tables():
             )
         ''')
 
+        # Sections table for linkgraph mode content extraction
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS crawl_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                crawl_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                heading TEXT,
+                heading_level INTEGER,
+                text TEXT,
+                word_count INTEGER,
+                position INTEGER,
+                FOREIGN KEY (crawl_id) REFERENCES crawls(id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_sections_crawl ON crawl_sections(crawl_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawl_sections_url ON crawl_sections(crawl_id, url)')
+
         # Page embeddings for content vectorization mode
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS page_embeddings (
@@ -206,6 +223,24 @@ def init_crawl_tables():
         # Migrations — add columns that may not exist in older databases
         try:
             cursor.execute("ALTER TABLE crawled_urls ADD COLUMN body_text TEXT DEFAULT ''")
+        except:
+            pass  # column already exists
+
+        # Migrations for linkgraph enriched link data
+        for col_def in [
+            "context TEXT DEFAULT ''",
+            "parent_heading TEXT DEFAULT ''",
+            "section_position INTEGER DEFAULT NULL",
+            "attributes TEXT DEFAULT ''",
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE crawl_links ADD COLUMN {col_def}")
+            except:
+                pass  # column already exists
+
+        # Migration for crawl mode tracking
+        try:
+            cursor.execute("ALTER TABLE crawls ADD COLUMN crawl_mode TEXT DEFAULT 'standard'")
         except:
             pass  # column already exists
 
@@ -341,7 +376,7 @@ def save_url_batch(crawl_id, urls):
         return False
 
 def save_links_batch(crawl_id, links):
-    """Batch save links"""
+    """Batch save links (supports both standard and linkgraph enriched formats)"""
     if not links:
         return True
 
@@ -359,15 +394,20 @@ def save_links_batch(crawl_id, links):
                     link.get('is_internal'),
                     link.get('target_domain'),
                     link.get('target_status'),
-                    link.get('placement', 'body')
+                    link.get('placement', 'body'),
+                    link.get('context', ''),
+                    link.get('parent_heading', ''),
+                    link.get('section_position'),
+                    json.dumps(link.get('attributes', {})) if link.get('attributes') else '',
                 )
                 rows.append(row)
 
             cursor.executemany('''
                 INSERT INTO crawl_links (
                     crawl_id, source_url, target_url, anchor_text,
-                    is_internal, target_domain, target_status, placement
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    is_internal, target_domain, target_status, placement,
+                    context, parent_heading, section_position, attributes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', rows)
 
             print(f"Saved {len(links)} links to database for crawl {crawl_id}")
@@ -376,6 +416,56 @@ def save_links_batch(crawl_id, links):
     except Exception as e:
         print(f"Error saving links batch: {e}")
         return False
+
+def save_sections_batch(crawl_id, sections):
+    """Batch save content sections for linkgraph mode"""
+    if not sections:
+        return True
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            rows = []
+            for section in sections:
+                row = (
+                    crawl_id,
+                    section.get('url'),
+                    section.get('heading'),
+                    section.get('heading_level'),
+                    section.get('text'),
+                    section.get('word_count'),
+                    section.get('position'),
+                )
+                rows.append(row)
+
+            cursor.executemany('''
+                INSERT INTO crawl_sections (
+                    crawl_id, url, heading, heading_level, text, word_count, position
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', rows)
+
+            return True
+
+    except Exception as e:
+        print(f"Error saving sections batch: {e}")
+        return False
+
+
+def load_crawl_sections(crawl_id):
+    """Load all sections for a crawl"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM crawl_sections WHERE crawl_id = ? ORDER BY url, position',
+                (crawl_id,)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Error loading sections: {e}")
+        return []
+
 
 def save_issues_batch(crawl_id, issues):
     """Batch save SEO issues"""
