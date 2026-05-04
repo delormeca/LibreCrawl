@@ -703,6 +703,11 @@ def start_crawl():
         })
     crawler.set_linkgraph_mode(linkgraph_mode)
 
+    # User-provided sitemap URLs
+    sitemap_urls = data.get('sitemapUrls', [])
+    if sitemap_urls:
+        crawler.set_user_sitemap_urls(sitemap_urls)
+
     # Enforce demo mode limits
     if DEMO_MODE:
         crawler.config['demo_mode'] = True
