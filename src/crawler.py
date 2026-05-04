@@ -120,7 +120,9 @@ class WebCrawler:
             'include_extensions': ['html', 'htm', 'php', 'asp', 'aspx', 'jsp'],
             'exclude_extensions': ['pdf', 'doc', 'docx', 'zip', 'exe', 'dmg'],
             'include_patterns': [],
-            'exclude_patterns': [],
+            'exclude_patterns': [
+                '/stores/store/redirect/',
+            ],
             'max_file_size': 50 * 1024 * 1024,
             'concurrency': 10,
             'memory_limit': 512 * 1024 * 1024,
