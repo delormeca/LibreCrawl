@@ -608,6 +608,14 @@
                         </div>
                     </div>
 
+                    <div class="setting-group" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="linkgraphMode" onchange="toggleLinkgraphMode(this.checked)">
+                            LinkGraph Mode
+                        </label>
+                        <span class="setting-help">Extracts all internal links with rich context + page content split by sections. Skips SEO analysis. Outputs a JSON for internal linking analysis &amp; vectorization.</span>
+                    </div>
+
                     <div class="setting-group">
                         <label for="maxDepth">Maximum Crawl Depth</label>
                         <input type="number" id="maxDepth" value="3" min="1" max="10">
@@ -1135,6 +1143,12 @@
                     <input type="checkbox" id="exp-embeddings" disabled style="width:16px; height:16px;">
                     <span><strong>Embeddings</strong> – page vectors and content</span>
                 </label>
+            </div>
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid #e5e7eb;">
+                <button onclick="exportLinkgraphJSON()" style="width:100%; padding:10px 18px; border:1px solid #5a6a30; border-radius:6px; background:rgba(90,106,48,0.08); color:#5a6a30; cursor:pointer; font-size:14px; font-weight:600;">
+                    ⬇ Download LinkGraph JSON
+                </button>
+                <p style="margin:6px 0 0; font-size:11px; color:#9ca3af;">Self-contained JSON with all links, content sections, and orphan detection — for internal linking analysis.</p>
             </div>
             <div style="display:flex; gap:10px; margin-top:22px; justify-content:flex-end;">
                 <button onclick="closeExportAllModal()" style="padding:8px 18px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; cursor:pointer; font-size:14px;">Cancel</button>

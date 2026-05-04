@@ -346,13 +346,14 @@ function clearCrawlData() {
 
 function startPythonCrawl(url) {
     const cvMode = document.getElementById('contentVectorizationMode')?.checked || false;
+    const lgMode = document.getElementById('linkgraphMode')?.checked || false;
     // Call Python backend to start crawling
     fetch('/api/start_crawl', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: url, contentVectorizationMode: cvMode })
+        body: JSON.stringify({ url: url, contentVectorizationMode: cvMode, linkgraphMode: lgMode })
     })
     .then(response => response.json())
     .then(data => {
@@ -2925,9 +2926,63 @@ function toggleContentVectorizationMode(enabled) {
     // Validate API key server-side
     if (enabled) {
         checkOpenAIKey();
+        // Uncheck linkgraph mode (mutually exclusive)
+        const lgEl = document.getElementById('linkgraphMode');
+        if (lgEl) { lgEl.checked = false; toggleLinkgraphMode(false); }
     } else {
         document.getElementById('cvModeWarning').style.display = 'none';
     }
+}
+
+function toggleLinkgraphMode(enabled) {
+    // Mutually exclusive with content vectorization
+    if (enabled) {
+        const cvEl = document.getElementById('contentVectorizationMode');
+        if (cvEl && cvEl.checked) {
+            cvEl.checked = false;
+            toggleContentVectorizationMode(false);
+        }
+    }
+    // Disable SEO-only settings when linkgraph is on
+    const seoSettings = ['enablePageSpeed', 'enableDuplicationCheck'];
+    seoSettings.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = enabled;
+            el.closest('.setting-group')?.classList.toggle('disabled-setting', enabled);
+        }
+    });
+}
+
+function exportLinkgraphJSON() {
+    closeExportAllModal();
+    updateStatus('Generating LinkGraph JSON...');
+    fetch('/api/export_data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'linkgraph-json' })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.content) {
+            const blob = new Blob([data.content], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = data.filename || 'linkgraph.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            updateStatus('LinkGraph JSON downloaded.');
+        } else {
+            updateStatus('Export failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('LinkGraph export error:', err);
+        updateStatus('Export failed: ' + err.message);
+    });
 }
 
 function checkOpenAIKey() {
