@@ -266,17 +266,13 @@ class WebCrawler:
             self.link_manager.add_url(url, 0)
             self.stats['discovered'] = 1
 
-            # Discover sitemaps if enabled
-            if self.config.get('discover_sitemaps', True):
-                print(f"Starting sitemap discovery for {url}")
-                self._discover_and_add_sitemap_urls(url)
-                print(f"Sitemap discovery completed. Total discovered URLs: {self.stats['discovered']}")
-
             # Start auto-save thread if DB enabled
             if self.db_save_enabled:
                 self._start_auto_save_thread()
 
             # Start crawling in separate thread
+            # Sitemap discovery runs inside _crawl_worker before the crawl loop
+            self._pending_sitemap_url = url
             self.is_running = True
             self.crawl_thread = threading.Thread(target=self._crawl_worker)
             self.crawl_thread.start()
@@ -705,6 +701,14 @@ class WebCrawler:
 
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
+        # Discover sitemaps first (runs in this thread, not the HTTP request thread)
+        if self._pending_sitemap_url and self.config.get('discover_sitemaps', True):
+            url = self._pending_sitemap_url
+            self._pending_sitemap_url = None
+            print(f"Starting sitemap discovery for {url}")
+            self._discover_and_add_sitemap_urls(url)
+            print(f"Sitemap discovery completed. Total discovered URLs: {self.stats['discovered']}")
+
         # Use async approach if JavaScript rendering is enabled
         if self.config.get('enable_javascript', False):
             print("Initializing JavaScript rendering...")

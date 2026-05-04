@@ -67,15 +67,38 @@ class CamoFoxRenderer:
             return await self._render_with_browser(browser, url, wait_time, timeout)
 
     # Resource types that waste bandwidth without adding SEO value
-    # Note: stylesheet must NOT be blocked — CSS hides cookie banners and controls layout
     _BLOCKED_TYPES = {'image', 'media', 'font'}
+
+    # Third-party domains that waste bandwidth (analytics, tracking, ads, CDN fonts)
+    _BLOCKED_DOMAINS = {
+        'googletagmanager.com', 'google-analytics.com', 'googlesyndication.com',
+        'googleadservices.com', 'doubleclick.net',
+        'facebook.net', 'facebook.com', 'fbcdn.net',
+        'connect.facebook.net',
+        'cookielaw.org', 'onetrust.com',
+        'hotjar.com', 'clarity.ms', 'mouseflow.com',
+        'pinimg.com', 'pinterest.com',
+        'techlab-cdn.com', 'adsrvr.org', 'demdex.net',
+        'fonts.googleapis.com', 'fonts.gstatic.com',
+    }
 
     @staticmethod
     async def _block_heavy_resources(route):
+        url = route.request.url
+        # Block by resource type
         if route.request.resource_type in CamoFoxRenderer._BLOCKED_TYPES:
             await route.abort()
-        else:
-            await route.continue_()
+            return
+        # Block third-party tracking/analytics domains
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(url).hostname or ''
+            if any(domain.endswith(d) for d in CamoFoxRenderer._BLOCKED_DOMAINS):
+                await route.abort()
+                return
+        except Exception:
+            pass
+        await route.continue_()
 
     # Common cookie consent accept button selectors
     _COOKIE_ACCEPT_SELECTORS = [
