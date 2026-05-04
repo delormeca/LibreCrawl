@@ -1014,14 +1014,22 @@ function applyLinksFilter() {
         });
     }
 
-    // Apply search filter for internal links
+    // Apply search filter for internal links (with column mode)
     const internalSearch = crawlState.filters.linksFilter.internalSearch.toLowerCase();
     if (internalSearch) {
-        internalLinks = internalLinks.filter(link =>
-            link.source_url.toLowerCase().includes(internalSearch) ||
-            link.target_url.toLowerCase().includes(internalSearch) ||
-            (link.anchor_text && link.anchor_text.toLowerCase().includes(internalSearch))
-        );
+        const searchMode = document.getElementById('internalLinkSearchMode')?.value || 'all';
+        internalLinks = internalLinks.filter(link => {
+            switch (searchMode) {
+                case 'target': return link.target_url.toLowerCase().includes(internalSearch);
+                case 'source': return link.source_url.toLowerCase().includes(internalSearch);
+                case 'anchor': return (link.anchor_text && link.anchor_text.toLowerCase().includes(internalSearch));
+                default: return (
+                    link.source_url.toLowerCase().includes(internalSearch) ||
+                    link.target_url.toLowerCase().includes(internalSearch) ||
+                    (link.anchor_text && link.anchor_text.toLowerCase().includes(internalSearch))
+                );
+            }
+        });
     }
 
     // Apply status code filter for external links
