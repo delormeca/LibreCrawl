@@ -158,44 +158,30 @@ def test_extract_body_text_uses_clean_soup():
 
 
 def test_extract_sections_with_headings():
-    """extract_sections splits trafilatura clean text by heading markers."""
+    """extract_sections splits by H2/H3 headings using DOM, skipping intro boilerplate."""
     from src.core.seo_extractor import SEOExtractor
 
-    # Use a realistic HTML page with substantial content per section (>30 words each)
+    # Each paragraph >30 words to avoid merge
     html = '''<html><body>
+    <nav>Skip this navigation menu content entirely</nav>
     <h1>Insurance Guide</h1>
-    <p>Welcome to our comprehensive insurance guide covering all aspects of vehicle protection including liability coverage comprehensive collision and specialized protections for modern drivers in Quebec and beyond with detailed explanations of each type.</p>
+    <p>Welcome to our comprehensive insurance guide covering all aspects of vehicle protection.</p>
     <h2>Liability Coverage</h2>
     <p>Liability coverage is the foundation of any auto insurance policy in Quebec providing essential protection against claims from other drivers pedestrians and property owners when you are found responsible for an accident that causes damage or injury to others on the road.</p>
     <h2>Comprehensive Protection</h2>
     <p>Comprehensive protection extends your coverage beyond collisions to include theft vandalism natural disasters falling objects and other non-collision events that could damage your vehicle while it is parked or in situations where traditional collision coverage would not apply to your claim.</p>
+    <footer>Footer junk</footer>
     </body></html>'''
 
-    # Simulate clean_text from trafilatura (each paragraph >30 words)
-    clean_text = (
-        "Welcome to our comprehensive insurance guide covering all aspects of vehicle protection "
-        "including liability coverage comprehensive collision and specialized protections for modern "
-        "drivers in Quebec and beyond with detailed explanations of each type.\n"
-        "Liability Coverage\n"
-        "Liability coverage is the foundation of any auto insurance policy in Quebec providing "
-        "essential protection against claims from other drivers pedestrians and property owners "
-        "when you are found responsible for an accident that causes damage or injury to others on the road.\n"
-        "Comprehensive Protection\n"
-        "Comprehensive protection extends your coverage beyond collisions to include theft vandalism "
-        "natural disasters falling objects and other non-collision events that could damage your vehicle "
-        "while it is parked or in situations where traditional collision coverage would not apply to your claim."
-    )
-
-    sections = SEOExtractor.extract_sections(html, title='Insurance Guide', clean_text=clean_text)
-    assert len(sections) >= 3, f'Expected >= 3 sections, got {len(sections)}'
-    # Check headings are captured
+    sections = SEOExtractor.extract_sections(html, title='Insurance Guide')
+    assert len(sections) >= 2, f'Expected >= 2 sections, got {len(sections)}'
     headings = [s['heading'] for s in sections]
     assert 'Liability Coverage' in headings
     assert 'Comprehensive Protection' in headings
-    # No boilerplate in any section
+    # No boilerplate (nav/footer stripped by _clean_soup, intro skipped)
     for s in sections:
-        assert 'Menu' not in s['text']
-        assert 'reCAPTCHA' not in s['text']
+        assert 'navigation menu' not in s['text'].lower()
+        assert 'Footer junk' not in s['text']
     # Positions are sequential
     for i, s in enumerate(sections):
         assert s['position'] == i
@@ -229,17 +215,14 @@ def test_extract_sections_merges_small():
 
 
 def test_extract_sections_table_content():
-    """Tables in trafilatura output should be preserved in sections."""
+    """Tables should be converted to readable text in sections."""
     from src.core.seo_extractor import SEOExtractor
-    # trafilatura includes table content when include_tables=True
-    # Simulate clean_text that includes table data
     html = '''<html><body>
     <h2>Data Table</h2>
     <table><tr><th>Name</th><th>Value</th></tr><tr><td>Alpha</td><td>100</td></tr><tr><td>Beta</td><td>200</td></tr></table>
     <p>Additional paragraph content with enough words to make the section meaningful for testing purposes here.</p>
     </body></html>'''
-    clean_text = "Data Table\nAlpha 100\nBeta 200\nAdditional paragraph content with enough words to make the section meaningful for testing purposes here."
-    sections = SEOExtractor.extract_sections(html, title='Test', clean_text=clean_text)
+    sections = SEOExtractor.extract_sections(html, title='Test')
     assert len(sections) >= 1
     data_section = [s for s in sections if s['heading'] == 'Data Table']
     assert len(data_section) == 1
