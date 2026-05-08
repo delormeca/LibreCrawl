@@ -240,13 +240,45 @@ def test_extract_sections_empty_html():
 # --- LinkManager Enriched Tests ---
 
 LINK_TEST_HTML = '''<html><body>
-<nav><a href="/about">About Us</a></nav>
-<h2>Services</h2>
-<p>We offer <a href="/seo" title="SEO" class="cta" data-track="click">excellent SEO services</a> for businesses looking to grow their online presence and visibility.</p>
-<p>Also check <a href="/seo" rel="nofollow">our SEO overview page</a> for a quick summary of what we can do for your business.</p>
-<h2>Blog</h2>
-<p>Read our <a href="/blog/guide" target="_blank">complete guide</a> to understanding modern search engine optimization techniques and strategies.</p>
-<footer><a href="/privacy">Privacy Policy</a></footer>
+<a href="/main-content" class="sr-only">Skip to content</a>
+<header>
+    <a href="/home" class="site-logo custom-logo-link"><img src="/logo.png" alt="Logo"></a>
+    <nav>
+        <a href="/about">About Us</a>
+        <ul class="dropdown-menu">
+            <li><a href="/about/team">Team</a></li>
+        </ul>
+    </nav>
+    <div class="language-switcher"><a href="/fr" hreflang="fr">FR</a></div>
+</header>
+<ol class="breadcrumb"><li><a href="/">Home</a></li><li><a href="/services">Services</a></li></ol>
+<aside class="sidebar">
+    <a href="/sidebar-link">Related post</a>
+</aside>
+<main>
+    <div class="hero banner"><a href="/signup" class="btn cta-primary">Get Started</a></div>
+    <h2>Services</h2>
+    <p>We offer <a href="/seo" title="SEO" class="cta" data-track="click">excellent SEO services</a> for businesses.</p>
+    <p>Also check <a href="/seo" rel="nofollow">our SEO overview page</a> for a quick summary.</p>
+    <a href="/gallery" class="btn btn-outline">View Gallery</a>
+    <a href="/portfolio"><img src="/portfolio.jpg" alt="Our work"></a>
+    <a href="/call"><i class="fa-phone"></i></a>
+    <div class="card"><a href="/blog/post-1">Latest Post</a></div>
+    <h2>Blog</h2>
+    <p>Read our <a href="/blog/guide" target="_blank">complete guide</a> to SEO.</p>
+    <table><tr><td><a href="/pricing">See pricing</a></td></tr></table>
+    <a href="/demo" class="wp-block-button__link">Request Demo</a>
+    <div class="related-posts"><a href="/blog/related">Related Article</a></div>
+</main>
+<div class="pagination"><a href="/page/2" rel="next">Next</a></div>
+<a href="https://twitter.com/example" class="social"><i class="fa-twitter"></i></a>
+<footer>
+    <nav aria-label="Footer navigation">
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+    </nav>
+    <div class="widget-area"><a href="/footer-widget-link">Recent Posts</a></div>
+</footer>
 </body></html>'''
 
 
@@ -261,8 +293,8 @@ def test_enriched_links_basic_collection():
 
     lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
 
-    # Should have: About (nav) + SEO (body) + SEO nofollow (body) + guide (body) + Privacy (footer) = 5
-    assert len(lm.all_links) == 5, f'Expected 5 links, got {len(lm.all_links)}'
+    # New fixture has 24 links across all placement types
+    assert len(lm.all_links) == 24, f'Expected 24 links, got {len(lm.all_links)}'
 
 
 def test_enriched_links_no_source_target_dedup():
@@ -281,24 +313,55 @@ def test_enriched_links_no_source_target_dedup():
 
 
 def test_enriched_links_placement_detection():
-    """Links in nav should be 'navigation', in footer should be 'footer', others 'body'."""
+    """Each link type should be classified by its HTML context."""
     from bs4 import BeautifulSoup
     from src.core.link_manager import LinkManager
 
     lm = LinkManager('example.com')
     soup = BeautifulSoup(LINK_TEST_HTML, 'html.parser')
-    sections = [{'heading': 'Services', 'position': 0}]
+    sections = [{'heading': 'Services', 'position': 0}, {'heading': 'Blog', 'position': 1}]
 
     lm.collect_all_links_enriched(soup, 'https://example.com/', sections, [])
 
-    about = [l for l in lm.all_links if '/about' in l['target_url']][0]
-    assert about['placement'] == 'navigation'
+    def find(url_part=None, anchor=None):
+        for l in lm.all_links:
+            if url_part and url_part in l['target_url']:
+                if anchor is None or l['anchor_text'] == anchor:
+                    return l
+            if anchor and not url_part:
+                if l['anchor_text'] == anchor:
+                    return l
+        return None
 
-    privacy = [l for l in lm.all_links if '/privacy' in l['target_url']][0]
-    assert privacy['placement'] == 'footer'
+    # --- Core 17 types ---
+    assert find('/main-content')['placement'] == 'skip-link'
+    assert find('/home')['placement'] == 'logo'
+    assert find('/about', 'About Us')['placement'] == 'navigation'
+    assert find('/about/team')['placement'] == 'menu-dropdown'
+    assert find('/fr')['placement'] == 'language-switcher'
+    assert find('/services', 'Services')['placement'] == 'breadcrumb'
+    assert find('/sidebar-link')['placement'] == 'sidebar'
+    assert find('/signup')['placement'] == 'cta'
+    assert find('/seo', 'excellent SEO services')['placement'] == 'body'
+    assert find('/gallery')['placement'] == 'button'
+    assert find('/portfolio')['placement'] == 'image'
+    assert find('/call')['placement'] == 'icon'
+    assert find('/blog/post-1')['placement'] == 'card'
+    assert find('/blog/guide')['placement'] == 'body'
+    assert find('/pricing')['placement'] == 'body'
+    assert find('/page/2')['placement'] == 'pagination'
+    assert find(url_part='twitter.com')['placement'] == 'social'
 
-    seo = [l for l in lm.all_links if l['anchor_text'] == 'excellent SEO services'][0]
-    assert seo['placement'] == 'body'
+    # --- Edge cases: footer priority ---
+    assert find('/privacy')['placement'] == 'footer'
+    assert find('/terms')['placement'] == 'footer'
+    assert find('/footer-widget-link')['placement'] == 'footer'
+
+    # --- Edge case: page builder buttons ---
+    assert find('/demo')['placement'] == 'button'
+
+    # --- Edge case: related posts = card ---
+    assert find('/blog/related')['placement'] == 'card'
 
 
 def test_enriched_links_attributes():
