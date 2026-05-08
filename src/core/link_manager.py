@@ -210,10 +210,10 @@ class LinkManager:
         # --- Ancestor chain walk (collect context in one pass) ---
         ancestor_context = self._collect_ancestor_context(link_element)
 
-        # 2. Logo — image-only link inside header with logo class
-        if is_image_only and ancestor_context['in_header']:
-            if ancestor_context['has_logo_class'] or link_classes_set & {'site-logo', 'custom-logo-link', 'navbar-brand', 'brand'}:
-                return 'logo'
+        # 2. Logo — link inside header with logo class (image-only OR text logos)
+        logo_classes = {'site-logo', 'custom-logo-link', 'navbar-brand', 'brand', 'logo'}
+        if ancestor_context['in_header'] and (ancestor_context['has_logo_class'] or link_classes_set & logo_classes):
+            return 'logo'
 
         # 8b. Now safe to return image (not a logo)
         if is_image_only:
