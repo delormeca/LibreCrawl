@@ -314,6 +314,26 @@
                                                     <option value="4xx">4xx Client Error</option>
                                                     <option value="5xx">5xx Server Error</option>
                                                 </select>
+                                                <select onchange="filterInternalPlacement(this.value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
+                                                    <option value="all">All Placements</option>
+                                                    <option value="body">Body</option>
+                                                    <option value="navigation">Navigation</option>
+                                                    <option value="menu-dropdown">Menu Dropdown</option>
+                                                    <option value="footer">Footer</option>
+                                                    <option value="sidebar">Sidebar</option>
+                                                    <option value="breadcrumb">Breadcrumb</option>
+                                                    <option value="pagination">Pagination</option>
+                                                    <option value="cta">CTA</option>
+                                                    <option value="button">Button</option>
+                                                    <option value="image">Image</option>
+                                                    <option value="icon">Icon</option>
+                                                    <option value="logo">Logo</option>
+                                                    <option value="card">Card</option>
+                                                    <option value="banner">Banner</option>
+                                                    <option value="language-switcher">Lang Switcher</option>
+                                                    <option value="social">Social</option>
+                                                    <option value="skip-link">Skip Link</option>
+                                                </select>
                                                 <select id="internalLinkSearchMode" onchange="searchInternalLinks(document.getElementById('internalLinkSearchInput').value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
                                                     <option value="all">All columns</option>
                                                     <option value="target">Links TO (target)</option>
@@ -351,6 +371,26 @@
                                                     <option value="3xx">3xx Redirect</option>
                                                     <option value="4xx">4xx Client Error</option>
                                                     <option value="5xx">5xx Server Error</option>
+                                                </select>
+                                                <select onchange="filterExternalPlacement(this.value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
+                                                    <option value="all">All Placements</option>
+                                                    <option value="body">Body</option>
+                                                    <option value="navigation">Navigation</option>
+                                                    <option value="menu-dropdown">Menu Dropdown</option>
+                                                    <option value="footer">Footer</option>
+                                                    <option value="sidebar">Sidebar</option>
+                                                    <option value="breadcrumb">Breadcrumb</option>
+                                                    <option value="pagination">Pagination</option>
+                                                    <option value="cta">CTA</option>
+                                                    <option value="button">Button</option>
+                                                    <option value="image">Image</option>
+                                                    <option value="icon">Icon</option>
+                                                    <option value="logo">Logo</option>
+                                                    <option value="card">Card</option>
+                                                    <option value="banner">Banner</option>
+                                                    <option value="language-switcher">Lang Switcher</option>
+                                                    <option value="social">Social</option>
+                                                    <option value="skip-link">Skip Link</option>
                                                 </select>
                                                 <input type="text" placeholder="Search..." oninput="searchExternalLinks(this.value)" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 13px; width: 200px;">
                                             </div>
