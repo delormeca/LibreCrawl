@@ -1788,3 +1788,20 @@ body {
 .placement-skip-link { background: rgba(156, 163, 175, 0.2); color: #d1d5db; border: 1px solid rgba(156, 163, 175, 0.3); }
 /* Backward compat: old crawler.py inline blocks used 'header' instead of 'navigation' */
 .placement-header { background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); }
+
+/* Two-level placement_detail sub-types */
+.placement-body_paragraph { background: rgba(22, 163, 74, 0.2); color: #22c55e; border: 1px solid rgba(22, 163, 74, 0.3); }
+.placement-body_list { background: rgba(22, 163, 74, 0.2); color: #4ade80; border: 1px solid rgba(22, 163, 74, 0.3); }
+.placement-body_table { background: rgba(22, 163, 74, 0.2); color: #86efac; border: 1px solid rgba(22, 163, 74, 0.3); }
+.placement-body_heading { background: rgba(22, 163, 74, 0.2); color: #a7f3d0; border: 1px solid rgba(22, 163, 74, 0.3); }
+.placement-body_image { background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); }
+.placement-body_caption { background: rgba(147, 51, 234, 0.2); color: #d8b4fe; border: 1px solid rgba(147, 51, 234, 0.3); }
+.placement-body_cta { background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
+.placement-body_blockquote { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+.placement-nav_main { background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); }
+.placement-nav_secondary { background: rgba(96, 165, 250, 0.2); color: #93bbfd; border: 1px solid rgba(96, 165, 250, 0.3); }
+.placement-nav_breadcrumb { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+.placement-nav_sidebar { background: rgba(13, 148, 136, 0.2); color: #2dd4bf; border: 1px solid rgba(13, 148, 136, 0.3); }
+.placement-footer_link { background: rgba(107, 114, 128, 0.2); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
+.placement-header_logo { background: rgba(30, 64, 175, 0.2); color: #60a5fa; border: 1px solid rgba(30, 64, 175, 0.3); }
+.placement-header_cta { background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }

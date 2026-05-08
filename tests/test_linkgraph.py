@@ -333,35 +333,73 @@ def test_enriched_links_placement_detection():
                     return l
         return None
 
-    # --- Core 17 types ---
-    assert find('/main-content')['placement'] == 'skip-link'
-    assert find('/home')['placement'] == 'logo'
-    assert find('/about', 'About Us')['placement'] == 'navigation'
-    assert find('/about/team')['placement'] == 'menu-dropdown'
-    assert find('/fr')['placement'] == 'language-switcher'
-    assert find('/services', 'Services')['placement'] == 'breadcrumb'
-    assert find('/sidebar-link')['placement'] == 'sidebar'
-    assert find('/signup')['placement'] == 'cta'
+    # --- Two-level taxonomy: placement (broad, 4 values) + placement_detail (specific) ---
+
+    # Header
+    assert find('/main-content')['placement'] == 'header'
+    assert find('/main-content')['placement_detail'] == 'header_cta'
+    assert find('/home')['placement'] == 'header'
+    assert find('/home')['placement_detail'] == 'header_logo'
+
+    # Navigation
+    assert find('/about', 'About Us')['placement'] == 'nav'
+    assert find('/about', 'About Us')['placement_detail'] == 'nav_main'
+    assert find('/about/team')['placement'] == 'nav'
+    assert find('/about/team')['placement_detail'] == 'nav_secondary'
+    assert find('/fr')['placement'] == 'nav'
+    assert find('/fr')['placement_detail'] == 'nav_secondary'
+    assert find('/services', 'Services')['placement'] == 'nav'
+    assert find('/services', 'Services')['placement_detail'] == 'nav_breadcrumb'
+    assert find('/sidebar-link')['placement'] == 'nav'
+    assert find('/sidebar-link')['placement_detail'] == 'nav_sidebar'
+    assert find('/page/2')['placement'] == 'nav'
+    assert find('/page/2')['placement_detail'] == 'nav_secondary'
+
+    # Body — editorial content with sub-types
+    assert find('/signup')['placement'] == 'body'
+    assert find('/signup')['placement_detail'] == 'body_cta'
     assert find('/seo', 'excellent SEO services')['placement'] == 'body'
-    assert find('/gallery')['placement'] == 'button'
-    assert find('/portfolio')['placement'] == 'image'
-    assert find('/call')['placement'] == 'icon'
-    assert find('/blog/post-1')['placement'] == 'card'
+    assert find('/seo', 'excellent SEO services')['placement_detail'] == 'body_paragraph'
+    assert find('/gallery')['placement'] == 'body'
+    assert find('/gallery')['placement_detail'] == 'body_cta'
+    assert find('/portfolio')['placement'] == 'body'
+    assert find('/portfolio')['placement_detail'] == 'body_image'
+    assert find('/call')['placement'] == 'body'
+    assert find('/call')['placement_detail'] == 'body_cta'
+    assert find('/blog/post-1')['placement'] == 'body'
+    assert find('/blog/post-1')['placement_detail'] == 'body_paragraph'
     assert find('/blog/guide')['placement'] == 'body'
+    assert find('/blog/guide')['placement_detail'] == 'body_paragraph'
     assert find('/pricing')['placement'] == 'body'
-    assert find('/page/2')['placement'] == 'pagination'
-    assert find(url_part='twitter.com')['placement'] == 'social'
+    assert find('/pricing')['placement_detail'] == 'body_table'
 
-    # --- Edge cases: footer priority ---
+    # Footer
     assert find('/privacy')['placement'] == 'footer'
+    assert find('/privacy')['placement_detail'] == 'footer_link'
     assert find('/terms')['placement'] == 'footer'
+    assert find('/terms')['placement_detail'] == 'footer_link'
     assert find('/footer-widget-link')['placement'] == 'footer'
+    assert find('/footer-widget-link')['placement_detail'] == 'footer_link'
+    assert find(url_part='twitter.com')['placement'] == 'footer'
+    assert find(url_part='twitter.com')['placement_detail'] == 'footer_link'
 
-    # --- Edge case: page builder buttons ---
-    assert find('/demo')['placement'] == 'button'
+    # Edge case: page builder buttons → body_cta
+    assert find('/demo')['placement'] == 'body'
+    assert find('/demo')['placement_detail'] == 'body_cta'
 
-    # --- Edge case: related posts = card ---
-    assert find('/blog/related')['placement'] == 'card'
+    # Edge case: related posts → body_paragraph (card content is editorial-adjacent)
+    assert find('/blog/related')['placement'] == 'body'
+    assert find('/blog/related')['placement_detail'] == 'body_paragraph'
+
+    # Verify enriched context fields on a body link
+    seo_link = find('/seo', 'excellent SEO services')
+    assert seo_link['parent_tag'] == 'p'
+    assert seo_link['is_image_link'] is False
+    assert seo_link['is_nofollow'] is False
+
+    # Verify nofollow detection
+    nofollow_link = find('/seo', 'our SEO overview page')
+    assert nofollow_link['is_nofollow'] is True
 
 
 def test_enriched_links_attributes():

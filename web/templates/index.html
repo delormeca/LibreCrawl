@@ -316,23 +316,29 @@
                                                 </select>
                                                 <select onchange="filterInternalPlacement(this.value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
                                                     <option value="all">All Placements</option>
-                                                    <option value="body">Body</option>
-                                                    <option value="navigation">Navigation</option>
-                                                    <option value="menu-dropdown">Menu Dropdown</option>
-                                                    <option value="footer">Footer</option>
-                                                    <option value="sidebar">Sidebar</option>
-                                                    <option value="breadcrumb">Breadcrumb</option>
-                                                    <option value="pagination">Pagination</option>
-                                                    <option value="cta">CTA</option>
-                                                    <option value="button">Button</option>
-                                                    <option value="image">Image</option>
-                                                    <option value="icon">Icon</option>
-                                                    <option value="logo">Logo</option>
-                                                    <option value="card">Card</option>
-                                                    <option value="banner">Banner</option>
-                                                    <option value="language-switcher">Lang Switcher</option>
-                                                    <option value="social">Social</option>
-                                                    <option value="skip-link">Skip Link</option>
+                                                    <optgroup label="Body (editorial)">
+                                                        <option value="body_paragraph">Paragraph</option>
+                                                        <option value="body_list">List</option>
+                                                        <option value="body_table">Table</option>
+                                                        <option value="body_heading">Heading</option>
+                                                        <option value="body_image">Image</option>
+                                                        <option value="body_caption">Caption</option>
+                                                        <option value="body_cta">CTA / Button</option>
+                                                        <option value="body_blockquote">Blockquote</option>
+                                                    </optgroup>
+                                                    <optgroup label="Navigation">
+                                                        <option value="nav_main">Main Nav</option>
+                                                        <option value="nav_secondary">Secondary Nav</option>
+                                                        <option value="nav_breadcrumb">Breadcrumb</option>
+                                                        <option value="nav_sidebar">Sidebar</option>
+                                                    </optgroup>
+                                                    <optgroup label="Footer">
+                                                        <option value="footer_link">Footer Link</option>
+                                                    </optgroup>
+                                                    <optgroup label="Header">
+                                                        <option value="header_logo">Logo</option>
+                                                        <option value="header_cta">Header CTA</option>
+                                                    </optgroup>
                                                 </select>
                                                 <select id="internalLinkSearchMode" onchange="searchInternalLinks(document.getElementById('internalLinkSearchInput').value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
                                                     <option value="all">All columns</option>
@@ -374,23 +380,29 @@
                                                 </select>
                                                 <select onchange="filterExternalPlacement(this.value)" style="padding: 6px 8px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 12px;">
                                                     <option value="all">All Placements</option>
-                                                    <option value="body">Body</option>
-                                                    <option value="navigation">Navigation</option>
-                                                    <option value="menu-dropdown">Menu Dropdown</option>
-                                                    <option value="footer">Footer</option>
-                                                    <option value="sidebar">Sidebar</option>
-                                                    <option value="breadcrumb">Breadcrumb</option>
-                                                    <option value="pagination">Pagination</option>
-                                                    <option value="cta">CTA</option>
-                                                    <option value="button">Button</option>
-                                                    <option value="image">Image</option>
-                                                    <option value="icon">Icon</option>
-                                                    <option value="logo">Logo</option>
-                                                    <option value="card">Card</option>
-                                                    <option value="banner">Banner</option>
-                                                    <option value="language-switcher">Lang Switcher</option>
-                                                    <option value="social">Social</option>
-                                                    <option value="skip-link">Skip Link</option>
+                                                    <optgroup label="Body (editorial)">
+                                                        <option value="body_paragraph">Paragraph</option>
+                                                        <option value="body_list">List</option>
+                                                        <option value="body_table">Table</option>
+                                                        <option value="body_heading">Heading</option>
+                                                        <option value="body_image">Image</option>
+                                                        <option value="body_caption">Caption</option>
+                                                        <option value="body_cta">CTA / Button</option>
+                                                        <option value="body_blockquote">Blockquote</option>
+                                                    </optgroup>
+                                                    <optgroup label="Navigation">
+                                                        <option value="nav_main">Main Nav</option>
+                                                        <option value="nav_secondary">Secondary Nav</option>
+                                                        <option value="nav_breadcrumb">Breadcrumb</option>
+                                                        <option value="nav_sidebar">Sidebar</option>
+                                                    </optgroup>
+                                                    <optgroup label="Footer">
+                                                        <option value="footer_link">Footer Link</option>
+                                                    </optgroup>
+                                                    <optgroup label="Header">
+                                                        <option value="header_logo">Logo</option>
+                                                        <option value="header_cta">Header CTA</option>
+                                                    </optgroup>
                                                 </select>
                                                 <input type="text" placeholder="Search..." oninput="searchExternalLinks(this.value)" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: white; font-size: 13px; width: 200px;">
                                             </div>

@@ -1491,10 +1491,14 @@ def generate_linkgraph_json_export(crawl_id):
         link_entry = {
             'target_url': link['target_url'],
             'anchor_text': link.get('anchor_text', ''),
+            'placement': link.get('placement', 'body'),
+            'placement_detail': link.get('placement_detail') or link.get('placement', 'body'),
             'context': link.get('context') or None,
             'parent_heading': link.get('parent_heading') or None,
             'section_position': link.get('section_position'),
-            'placement': link.get('placement', 'body'),
+            'parent_tag': link.get('parent_tag') or None,
+            'is_image_link': bool(link.get('is_image_link')),
+            'is_nofollow': bool(link.get('is_nofollow')),
             'attributes': attributes,
         }
 
@@ -1512,6 +1516,7 @@ def generate_linkgraph_json_export(crawl_id):
                 'source_url': link['source_url'],
                 'anchor_text': link.get('anchor_text', ''),
                 'placement': link.get('placement', 'body'),
+                'placement_detail': link.get('placement_detail') or link.get('placement', 'body'),
             })
 
     # Build pages dict

@@ -1058,11 +1058,12 @@ class WebCrawler:
                             clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                             if clean_url not in seen_urls:
                                 seen_urls.add(clean_url)
-                                placement = self.link_manager._detect_link_placement(a_tag)
+                                placement, placement_detail = self.link_manager.classify_link_placement(a_tag)
                                 internal_links.append({
                                     'url': clean_url,
                                     'anchor': a_tag.get_text(strip=True),
                                     'placement': placement,
+                                    'placement_detail': placement_detail,
                                 })
                     result['internal_links_out'] = json.dumps(internal_links)
 
@@ -1217,11 +1218,12 @@ class WebCrawler:
                         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                         if clean_url not in seen_urls:
                             seen_urls.add(clean_url)
-                            placement = self.link_manager._detect_link_placement(a_tag)
+                            placement, placement_detail = self.link_manager.classify_link_placement(a_tag)
                             internal_links.append({
                                 'url': clean_url,
                                 'anchor': a_tag.get_text(strip=True),
                                 'placement': placement,
+                                'placement_detail': placement_detail,
                             })
                 result['internal_links_out'] = json.dumps(internal_links)
 

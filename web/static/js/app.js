@@ -1016,11 +1016,11 @@ function applyLinksFilter() {
         });
     }
 
-    // Apply placement filter for internal links
+    // Apply placement filter for internal links (matches placement_detail for granularity)
     const internalPlacementFilter = crawlState.filters.linksFilter.internalPlacement;
     if (internalPlacementFilter && internalPlacementFilter !== 'all') {
         internalLinks = internalLinks.filter(link =>
-            (link.placement || 'body') === internalPlacementFilter
+            (link.placement_detail || link.placement || 'body') === internalPlacementFilter
         );
     }
 
@@ -1058,11 +1058,11 @@ function applyLinksFilter() {
         });
     }
 
-    // Apply placement filter for external links
+    // Apply placement filter for external links (matches placement_detail for granularity)
     const externalPlacementFilter = crawlState.filters.linksFilter.externalPlacement;
     if (externalPlacementFilter && externalPlacementFilter !== 'all') {
         externalLinks = externalLinks.filter(link =>
-            (link.placement || 'body') === externalPlacementFilter
+            (link.placement_detail || link.placement || 'body') === externalPlacementFilter
         );
     }
 
@@ -2828,16 +2828,16 @@ function renderExternalRow(row, urlData, index) {
     });
 }
 
-function placementBadge(placement) {
-    if (!placement) return '<span class="placement-badge placement-body">Body</span>';
-    const label = placement.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    const cssClass = 'placement-' + placement;
+function placementBadge(placementDetail, placement) {
+    const detail = placementDetail || placement || 'body';
+    const label = detail.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const cssClass = 'placement-' + detail;
     return `<span class="placement-badge ${cssClass}">${label}</span>`;
 }
 
 function renderInternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
-    const placementHtml = placementBadge(link.placement);
+    const placementHtml = placementBadge(link.placement_detail, link.placement);
 
     row.appendChild(createUrlCell(link.source_url));
     row.appendChild(createUrlCell(link.target_url));
@@ -2854,7 +2854,7 @@ function renderInternalLinkRow(row, link, index) {
 
 function renderExternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
-    const placementHtml = placementBadge(link.placement);
+    const placementHtml = placementBadge(link.placement_detail, link.placement);
 
     row.appendChild(createUrlCell(link.source_url));
     row.appendChild(createUrlCell(link.target_url));

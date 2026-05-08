@@ -9,6 +9,35 @@ SOCIAL_DOMAINS = frozenset([
     'threads.net', 'mastodon.social', 'bsky.app',
 ])
 
+# Two-level taxonomy: placement_detail (17 types) → placement (4 broad categories)
+# The broad category preserves backward compat with internal-linking parser:
+#   body_links = [lk for lk in links if lk.get("placement") == "body"]
+PLACEMENT_TO_CATEGORY = {
+    'body': 'body',        'button': 'body',       'cta': 'body',
+    'image': 'body',       'icon': 'body',         'card': 'body',
+    'banner': 'body',
+    'navigation': 'nav',   'menu-dropdown': 'nav', 'breadcrumb': 'nav',
+    'sidebar': 'nav',      'pagination': 'nav',    'language-switcher': 'nav',
+    'footer': 'footer',    'social': 'footer',
+    'logo': 'header',      'skip-link': 'header',
+}
+
+# Body sub-type refinement based on parent HTML tag
+PARENT_TAG_TO_BODY_DETAIL = {
+    'p': 'body_paragraph',
+    'li': 'body_list',
+    'td': 'body_table',
+    'th': 'body_table',
+    'blockquote': 'body_blockquote',
+    'figcaption': 'body_caption',
+    'h1': 'body_heading',
+    'h2': 'body_heading',
+    'h3': 'body_heading',
+    'h4': 'body_heading',
+    'h5': 'body_heading',
+    'h6': 'body_heading',
+}
+
 
 class LinkManager:
     """Manages link discovery, tracking, and extraction"""
@@ -98,8 +127,8 @@ class LinkManager:
                         target_status = result['status_code']
                         break
 
-                # Determine placement (navigation, footer, body)
-                placement = self._detect_link_placement(link)
+                # Determine placement (two-level taxonomy)
+                placement, placement_detail = self.classify_link_placement(link)
 
                 link_data = {
                     'source_url': source_url,
@@ -108,7 +137,8 @@ class LinkManager:
                     'is_internal': is_internal,
                     'target_domain': parsed_target.netloc,
                     'target_status': target_status,
-                    'placement': placement
+                    'placement': placement,
+                    'placement_detail': placement_detail,
                 }
 
                 # Track source page for this URL (for "Linked From" feature)
@@ -243,6 +273,51 @@ class LinkManager:
 
         # 17. Default
         return 'body'
+
+    def classify_link_placement(self, link_element):
+        """Return (placement, placement_detail) two-level taxonomy.
+
+        placement: one of 4 broad categories (body, nav, footer, header)
+        placement_detail: one of 17 specific types (body_paragraph, nav_breadcrumb, etc.)
+
+        For body links, placement_detail is further refined by parent HTML tag.
+        """
+        detail_type = self._detect_link_placement(link_element)
+        category = PLACEMENT_TO_CATEGORY.get(detail_type, 'body')
+
+        # Refine body links by parent tag for SEO sub-typing
+        if category == 'body' and detail_type == 'body':
+            parent = link_element.parent
+            while parent and parent.name not in PARENT_TAG_TO_BODY_DETAIL and parent.name not in ('div', 'body', None):
+                parent = parent.parent
+            if parent and parent.name in PARENT_TAG_TO_BODY_DETAIL:
+                detail_type = PARENT_TAG_TO_BODY_DETAIL[parent.name]
+            else:
+                detail_type = 'body_paragraph'  # default body sub-type
+        elif category == 'body' and detail_type == 'image':
+            detail_type = 'body_image'
+        elif category == 'body' and detail_type in ('button', 'cta'):
+            detail_type = 'body_cta'
+        elif category == 'body' and detail_type == 'icon':
+            detail_type = 'body_cta'
+        elif category == 'body' and detail_type in ('card', 'banner'):
+            detail_type = 'body_paragraph'  # content cards are editorial-adjacent
+        elif category == 'nav' and detail_type == 'breadcrumb':
+            detail_type = 'nav_breadcrumb'
+        elif category == 'nav' and detail_type == 'sidebar':
+            detail_type = 'nav_sidebar'
+        elif category == 'nav' and detail_type in ('menu-dropdown', 'language-switcher', 'pagination'):
+            detail_type = 'nav_secondary'
+        elif category == 'nav' and detail_type == 'navigation':
+            detail_type = 'nav_main'
+        elif category == 'footer':
+            detail_type = 'footer_link'
+        elif category == 'header' and detail_type == 'logo':
+            detail_type = 'header_logo'
+        elif category == 'header':
+            detail_type = 'header_cta'
+
+        return category, detail_type
 
     @staticmethod
     def _collect_ancestor_context(link_element):
@@ -435,12 +510,18 @@ class LinkManager:
                         target_status = r['status_code']
                         break
 
-                placement = self._detect_link_placement(link)
+                placement, placement_detail = self.classify_link_placement(link)
                 anchor_text = link.get_text().strip()[:100] or '(no text)'
                 context = self._extract_link_context(link)
                 parent_heading, _ = self._find_parent_heading(link)
                 section_position = heading_positions.get(parent_heading) if parent_heading else None
                 attributes = self._extract_link_attributes(link)
+
+                # Derive flags the internal-linking parser needs
+                rel_str = ' '.join(link.get('rel', [])) if isinstance(link.get('rel'), list) else (link.get('rel') or '')
+                is_nofollow = 'nofollow' in rel_str or 'sponsored' in rel_str
+                is_image_link = placement_detail == 'body_image'
+                parent_tag = link.parent.name if link.parent else None
 
                 link_data = {
                     'source_url': source_url,
@@ -450,10 +531,14 @@ class LinkManager:
                     'target_domain': parsed_target.netloc,
                     'target_status': target_status,
                     'placement': placement,
+                    'placement_detail': placement_detail,
                     'context': context,
                     'parent_heading': parent_heading or '',
                     'section_position': section_position,
                     'attributes': attributes,
+                    'parent_tag': parent_tag,
+                    'is_image_link': is_image_link,
+                    'is_nofollow': is_nofollow,
                 }
 
                 with self.urls_lock:

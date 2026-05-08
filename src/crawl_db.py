@@ -232,6 +232,10 @@ def init_crawl_tables():
             "parent_heading TEXT DEFAULT ''",
             "section_position INTEGER DEFAULT NULL",
             "attributes TEXT DEFAULT ''",
+            "placement_detail TEXT DEFAULT ''",
+            "parent_tag TEXT DEFAULT ''",
+            "is_image_link BOOLEAN DEFAULT 0",
+            "is_nofollow BOOLEAN DEFAULT 0",
         ]:
             try:
                 cursor.execute(f"ALTER TABLE crawl_links ADD COLUMN {col_def}")
@@ -399,6 +403,10 @@ def save_links_batch(crawl_id, links):
                     link.get('parent_heading', ''),
                     link.get('section_position'),
                     json.dumps(link.get('attributes', {})) if link.get('attributes') else '',
+                    link.get('placement_detail', ''),
+                    link.get('parent_tag', ''),
+                    1 if link.get('is_image_link') else 0,
+                    1 if link.get('is_nofollow') else 0,
                 )
                 rows.append(row)
 
@@ -406,8 +414,9 @@ def save_links_batch(crawl_id, links):
                 INSERT INTO crawl_links (
                     crawl_id, source_url, target_url, anchor_text,
                     is_internal, target_domain, target_status, placement,
-                    context, parent_heading, section_position, attributes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    context, parent_heading, section_position, attributes,
+                    placement_detail, parent_tag, is_image_link, is_nofollow
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', rows)
 
             print(f"Saved {len(links)} links to database for crawl {crawl_id}")
