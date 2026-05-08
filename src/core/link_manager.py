@@ -287,7 +287,7 @@ class LinkManager:
                         or cls.startswith('menu') or cls.endswith('-menu')
                         or cls in ('site-header',)):
                     ctx['in_nav_or_header'] = True
-                if 'foot' in cls:
+                if 'foot' in cls and 'note' not in cls:
                     ctx['in_footer'] = True
                 if cls in ('site-logo', 'custom-logo', 'site-branding', 'brand',
                            'navbar-brand', 'custom-logo-link'):
@@ -328,7 +328,7 @@ class LinkManager:
 
             # ID-based checks
             if el_id:
-                if 'foot' in el_id:
+                if 'foot' in el_id and 'note' not in el_id:
                     ctx['in_footer'] = True
                 if el_id.startswith('nav') or el_id.endswith('-nav') or el_id in ('menu', 'site-header'):
                     ctx['in_nav_or_header'] = True
