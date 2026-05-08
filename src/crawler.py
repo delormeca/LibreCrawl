@@ -1058,11 +1058,7 @@ class WebCrawler:
                             clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                             if clean_url not in seen_urls:
                                 seen_urls.add(clean_url)
-                                placement = 'body'
-                                for parent in a_tag.parents:
-                                    if parent.name in ('nav', 'header', 'footer'):
-                                        placement = parent.name
-                                        break
+                                placement = self.link_manager._detect_link_placement(a_tag)
                                 internal_links.append({
                                     'url': clean_url,
                                     'anchor': a_tag.get_text(strip=True),
@@ -1221,11 +1217,7 @@ class WebCrawler:
                         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                         if clean_url not in seen_urls:
                             seen_urls.add(clean_url)
-                            placement = 'body'
-                            for parent in a_tag.parents:
-                                if parent.name in ('nav', 'header', 'footer'):
-                                    placement = parent.name
-                                    break
+                            placement = self.link_manager._detect_link_placement(a_tag)
                             internal_links.append({
                                 'url': clean_url,
                                 'anchor': a_tag.get_text(strip=True),
