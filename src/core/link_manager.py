@@ -301,7 +301,14 @@ class LinkManager:
         elif category == 'body' and detail_type == 'icon':
             detail_type = 'body_cta'
         elif category == 'body' and detail_type in ('card', 'banner'):
-            detail_type = 'body_paragraph'  # content cards are editorial-adjacent
+            # Refine card/banner links by parent tag (e.g., h3 link in a card = body_heading)
+            parent = link_element.parent
+            while parent and parent.name not in PARENT_TAG_TO_BODY_DETAIL and parent.name not in ('div', 'body', None):
+                parent = parent.parent
+            if parent and parent.name in PARENT_TAG_TO_BODY_DETAIL:
+                detail_type = PARENT_TAG_TO_BODY_DETAIL[parent.name]
+            else:
+                detail_type = 'body_paragraph'
         elif category == 'nav' and detail_type == 'breadcrumb':
             detail_type = 'nav_breadcrumb'
         elif category == 'nav' and detail_type == 'sidebar':
@@ -364,8 +371,8 @@ class LinkManager:
                     ctx['in_nav_or_header'] = True
                 if 'foot' in cls and 'note' not in cls:
                     ctx['in_footer'] = True
-                if cls in ('site-logo', 'custom-logo', 'site-branding', 'brand',
-                           'navbar-brand', 'custom-logo-link'):
+                if ('logo' in cls or cls in ('site-branding', 'brand',
+                           'navbar-brand', 'custom-logo-link')):
                     ctx['has_logo_class'] = True
                 if cls in ('language-switcher', 'lang-switcher', 'language-selector',
                            'wpml-ls', 'polylang-switcher', 'lang-toggle'):
