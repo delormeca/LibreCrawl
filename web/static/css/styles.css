@@ -1757,3 +1757,34 @@ body {
 .dimmed {
     opacity: 0.2 !important;
 }
+
+/* --- Placement badges --- */
+.placement-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.placement-body { background: rgba(22, 163, 74, 0.2); color: #22c55e; border: 1px solid rgba(22, 163, 74, 0.3); }
+.placement-navigation { background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); }
+.placement-menu-dropdown { background: rgba(96, 165, 250, 0.2); color: #93bbfd; border: 1px solid rgba(96, 165, 250, 0.3); }
+.placement-footer { background: rgba(107, 114, 128, 0.2); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
+.placement-sidebar { background: rgba(13, 148, 136, 0.2); color: #2dd4bf; border: 1px solid rgba(13, 148, 136, 0.3); }
+.placement-breadcrumb { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+.placement-pagination { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3); }
+.placement-button { background: rgba(234, 88, 12, 0.2); color: #fb923c; border: 1px solid rgba(234, 88, 12, 0.3); }
+.placement-cta { background: rgba(249, 115, 22, 0.2); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
+.placement-image { background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); }
+.placement-icon { background: rgba(167, 139, 250, 0.2); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); }
+.placement-logo { background: rgba(30, 64, 175, 0.2); color: #60a5fa; border: 1px solid rgba(30, 64, 175, 0.3); }
+.placement-card { background: rgba(217, 119, 6, 0.2); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.3); }
+.placement-banner { background: rgba(251, 146, 60, 0.2); color: #fdba74; border: 1px solid rgba(251, 146, 60, 0.3); }
+.placement-language-switcher { background: rgba(79, 70, 229, 0.2); color: #a5b4fc; border: 1px solid rgba(79, 70, 229, 0.3); }
+.placement-social { background: rgba(236, 72, 153, 0.2); color: #f9a8d4; border: 1px solid rgba(236, 72, 153, 0.3); }
+.placement-skip-link { background: rgba(156, 163, 175, 0.2); color: #d1d5db; border: 1px solid rgba(156, 163, 175, 0.3); }
+/* Backward compat: old crawler.py inline blocks used 'header' instead of 'navigation' */
+.placement-header { background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); }
