@@ -347,6 +347,9 @@ class LinkManager:
         current = link_element.parent
         while current and current.name:
             tag = current.name
+            # Stop at <body>/<html> — their classes are page-level, not structural
+            if tag in ('body', 'html'):
+                break
             classes = current.get('class', [])
             cls_set = {c.lower() for c in classes} if classes else set()
             el_id = (current.get('id') or '').lower()
@@ -371,8 +374,13 @@ class LinkManager:
                     ctx['in_nav_or_header'] = True
                 if 'foot' in cls and 'note' not in cls:
                     ctx['in_footer'] = True
-                if ('logo' in cls or cls in ('site-branding', 'brand',
-                           'navbar-brand', 'custom-logo-link')):
+                if cls in ('site-logo', 'custom-logo', 'custom-logo-link',
+                           'site-branding', 'navbar-brand',
+                           'wp-block-site-logo', 'gh-head-logo',
+                           'header__heading-logo'):
+                    ctx['has_logo_class'] = True
+                # Substring 'logo' only on CLOSE ancestors (parent/grandparent)
+                if 'logo' in cls and current == link_element.parent:
                     ctx['has_logo_class'] = True
                 if cls in ('language-switcher', 'lang-switcher', 'language-selector',
                            'wpml-ls', 'polylang-switcher', 'lang-toggle'):
