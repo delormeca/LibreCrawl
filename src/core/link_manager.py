@@ -3,6 +3,12 @@ import threading
 from urllib.parse import urljoin, urlparse
 from collections import deque
 
+SOCIAL_DOMAINS = frozenset([
+    'facebook.com', 'twitter.com', 'x.com', 'linkedin.com', 'instagram.com',
+    'youtube.com', 'tiktok.com', 'pinterest.com', 'reddit.com', 'github.com',
+    'threads.net', 'mastodon.social', 'bsky.app',
+])
+
 
 class LinkManager:
     """Manages link discovery, tracking, and extraction"""
@@ -124,36 +130,224 @@ class LinkManager:
                 continue
 
     def _detect_link_placement(self, link_element):
-        """Detect where on the page a link is placed"""
-        # Check parent elements up the tree
+        """Classify where on the page a link appears.
+
+        Priority-ordered: most-specific first, first match wins.
+        Returns one of 17 placement types (default: 'body').
+        """
+        # --- Element-level checks (inspect the <a> itself) ---
+
+        # 1. Skip link
+        anchor_text = link_element.get_text(strip=True).lower()
+        if anchor_text in ('skip to content', 'skip to main content', 'skip to main', 'skip navigation'):
+            return 'skip-link'
+        link_classes = link_element.get('class', [])
+        link_classes_set = {c.lower() for c in link_classes} if link_classes else set()
+        if link_classes_set & {'sr-only', 'visually-hidden', 'skip-link', 'screen-reader-text'}:
+            if 'skip' in anchor_text or 'main' in anchor_text or 'content' in anchor_text:
+                return 'skip-link'
+
+        # 6. Social — check href domain before walking ancestors
+        href = link_element.get('href', '')
+        for domain in SOCIAL_DOMAINS:
+            if domain in href:
+                return 'social'
+
+        # 7. Icon — <a> with only icon children, no visible text
+        children = [c for c in link_element.children if getattr(c, 'name', None) or (isinstance(c, str) and c.strip())]
+        visible_text = link_element.get_text(strip=True)
+        if children and not visible_text:
+            child_tags = {getattr(c, 'name', None) for c in children}
+            child_tags.discard(None)
+            if child_tags <= {'i', 'svg', 'span'}:
+                for child in children:
+                    child_cls = ' '.join(child.get('class', [])).lower() if getattr(child, 'get', None) else ''
+                    if any(p in child_cls for p in ('fa-', 'icon', 'material', 'glyphicon')):
+                        return 'icon'
+                    if getattr(child, 'get', None) and child.get('aria-hidden') == 'true':
+                        return 'icon'
+
+        # 8. Image — <a> wrapping only img/picture/svg/figure
+        #    Defer to ancestor walk (might be logo)
+        is_image_only = False
+        if children:
+            child_tags = {getattr(c, 'name', None) for c in children}
+            child_tags.discard(None)
+            text_children = [c for c in children if not getattr(c, 'name', None) and isinstance(c, str) and c.strip()]
+            if child_tags <= {'img', 'picture', 'svg', 'figure'} and not text_children:
+                is_image_only = True
+
+        # --- Ancestor chain walk (collect context in one pass) ---
+        ancestor_context = self._collect_ancestor_context(link_element)
+
+        # 2. Logo — image-only link inside header with logo class
+        if is_image_only and ancestor_context['in_header']:
+            if ancestor_context['has_logo_class'] or link_classes_set & {'site-logo', 'custom-logo-link', 'navbar-brand', 'brand'}:
+                return 'logo'
+
+        # 8b. Now safe to return image (not a logo)
+        if is_image_only:
+            return 'image'
+
+        # 3. Language switcher
+        if ancestor_context['has_lang_switcher_class'] or link_element.get('hreflang'):
+            return 'language-switcher'
+
+        # 4. Breadcrumb
+        if ancestor_context['has_breadcrumb']:
+            return 'breadcrumb'
+
+        # 5. Pagination
+        rel = link_element.get('rel', [])
+        rel_str = ' '.join(rel) if isinstance(rel, list) else (rel or '')
+        if ancestor_context['has_pagination'] or 'prev' in rel_str or 'next' in rel_str:
+            return 'pagination'
+
+        # 9. CTA — btn/button class inside hero/banner, or cta class on ancestor
+        if ancestor_context['has_cta_class']:
+            return 'cta'
+        if ancestor_context['has_banner'] and any('button' in c or 'btn' in c for c in link_classes_set):
+            return 'cta'
+
+        # 10. Button — universal substring match on <a> classes
+        if link_element.get('role') == 'button':
+            return 'button'
+        if any('button' in c or 'btn' in c for c in link_classes_set):
+            return 'button'
+        if link_element.find('button'):
+            return 'button'
+
+        # 11. Footer — checked BEFORE sidebar/nav
+        if ancestor_context['in_footer']:
+            return 'footer'
+
+        # 12. Sidebar
+        if ancestor_context['has_sidebar']:
+            return 'sidebar'
+
+        # 13. Banner (not already caught by CTA)
+        if ancestor_context['has_banner']:
+            return 'banner'
+
+        # 14. Card
+        if ancestor_context['has_card']:
+            return 'card'
+
+        # 15. Menu dropdown — inside nav/header with dropdown class
+        if ancestor_context['in_nav_or_header'] and ancestor_context['has_dropdown']:
+            return 'menu-dropdown'
+
+        # 16. Navigation
+        if ancestor_context['in_nav_or_header']:
+            return 'navigation'
+
+        # 17. Default
+        return 'body'
+
+    @staticmethod
+    def _collect_ancestor_context(link_element):
+        """Walk ancestor chain once, collecting all context flags."""
+        ctx = {
+            'in_header': False,
+            'in_footer': False,
+            'in_nav_or_header': False,
+            'has_logo_class': False,
+            'has_lang_switcher_class': False,
+            'has_breadcrumb': False,
+            'has_pagination': False,
+            'has_cta_class': False,
+            'has_banner': False,
+            'has_sidebar': False,
+            'has_card': False,
+            'has_dropdown': False,
+        }
+
         current = link_element.parent
-
         while current and current.name:
-            # Check for footer
-            if current.name == 'footer':
-                return 'footer'
-
-            # Check for footer by class/id
+            tag = current.name
             classes = current.get('class', [])
-            element_id = current.get('id', '')
-            classes_str = ' '.join(classes).lower() if classes else ''
+            cls_set = {c.lower() for c in classes} if classes else set()
+            el_id = (current.get('id') or '').lower()
 
-            if 'footer' in classes_str or 'footer' in element_id.lower():
-                return 'footer'
+            # Semantic tags + ARIA landmark roles
+            role = current.get('role', '')
+            if tag == 'nav' or role == 'navigation':
+                ctx['in_nav_or_header'] = True
+            if tag == 'header' or role == 'banner':
+                ctx['in_header'] = True
+                ctx['in_nav_or_header'] = True
+            if tag == 'footer' or role == 'contentinfo':
+                ctx['in_footer'] = True
+            if tag == 'aside' or role == 'complementary':
+                ctx['has_sidebar'] = True
 
-            # Check for navigation
-            if current.name in ['nav', 'header']:
-                return 'navigation'
+            # Class token checks — pattern-based for broad CMS coverage
+            for cls in cls_set:
+                if (cls.startswith('nav') or cls.endswith('-nav')
+                        or cls.startswith('menu') or cls.endswith('-menu')
+                        or cls in ('site-header',)):
+                    ctx['in_nav_or_header'] = True
+                if 'foot' in cls:
+                    ctx['in_footer'] = True
+                if cls in ('site-logo', 'custom-logo', 'site-branding', 'brand',
+                           'navbar-brand', 'custom-logo-link'):
+                    ctx['has_logo_class'] = True
+                if cls in ('language-switcher', 'lang-switcher', 'language-selector',
+                           'wpml-ls', 'polylang-switcher', 'lang-toggle'):
+                    ctx['has_lang_switcher_class'] = True
+                if 'breadcrumb' in cls:
+                    ctx['has_breadcrumb'] = True
+                if cls in ('pagination', 'pager', 'page-numbers'):
+                    ctx['has_pagination'] = True
+                if 'cta' in cls or cls == 'call-to-action':
+                    ctx['has_cta_class'] = True
+                if cls in ('hero', 'banner', 'jumbotron', 'promo', 'masthead',
+                           'announcement-bar', 'announcement', 'promo-bar',
+                           'hero-section', 'hero-banner'):
+                    ctx['has_banner'] = True
+                if 'sidebar' in cls or 'widget' in cls or cls in ('complementary', 'aside'):
+                    ctx['has_sidebar'] = True
+                if cls in ('card', 'tile',
+                           'wp-block-post',
+                           'elementor-widget-posts', 'elementor-widget-portfolio',
+                           'sqs-block', 'summary-item', 'blog-item',
+                           'product-card', 'product-card-wrapper', 'product',
+                           'product-item', 'product-item-info',
+                           'product-miniature',
+                           'woocommerce-loop-product__link',
+                           'card-wrapper', 'article-card',
+                           'post-card', 'kg-card',
+                           'w-dyn-item',
+                           'cmp-teaser',
+                           'related-posts', 'related-articles',
+                           'recommended', 'you-may-also-like'):
+                    ctx['has_card'] = True
+                if cls in ('dropdown', 'dropdown-menu', 'submenu', 'sub-menu',
+                           'mega-menu', 'dropdown-content', 'w-dropdown'):
+                    ctx['has_dropdown'] = True
 
-            # Check for navigation by class/id
-            if any(keyword in classes_str or keyword in element_id.lower()
-                   for keyword in ['nav', 'menu', 'header']):
-                return 'navigation'
+            # ID-based checks
+            if el_id:
+                if 'foot' in el_id:
+                    ctx['in_footer'] = True
+                if el_id.startswith('nav') or el_id.endswith('-nav') or el_id in ('menu', 'site-header'):
+                    ctx['in_nav_or_header'] = True
+                if 'sidebar' in el_id or 'widget' in el_id:
+                    ctx['has_sidebar'] = True
+
+            # Schema.org breadcrumb
+            if current.get('itemtype') and 'BreadcrumbList' in (current.get('itemtype') or ''):
+                ctx['has_breadcrumb'] = True
+            # Aria label breadcrumb
+            if (current.get('aria-label') or '').lower() == 'breadcrumb':
+                ctx['has_breadcrumb'] = True
+            # aria-expanded (dropdown indicator, only meaningful inside nav/header)
+            if current.get('aria-expanded') is not None:
+                ctx['has_dropdown'] = True
 
             current = current.parent
 
-        # Default to body if not in nav or footer
-        return 'body'
+        return ctx
 
     @staticmethod
     def _find_parent_heading(element):
