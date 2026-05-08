@@ -1394,12 +1394,12 @@ function extractContentColumn(urlData, colIndex) {
 }
 
 function extractInternalLinkColumn(link, colIndex) {
-    const fields = [link.source_url, link.target_url, link.target_status || '', link.anchor_text || '', link.placement || ''];
+    const fields = [link.source_url, link.target_url, link.target_status || '', link.anchor_text || '', link.placement_detail || link.placement || ''];
     return fields[colIndex] ?? '';
 }
 
 function extractExternalLinkColumn(link, colIndex) {
-    const fields = [link.source_url, link.target_url, link.target_status || '', link.target_domain || '', link.placement || ''];
+    const fields = [link.source_url, link.target_url, link.target_status || '', link.target_domain || '', link.placement_detail || link.placement || ''];
     return fields[colIndex] ?? '';
 }
 
