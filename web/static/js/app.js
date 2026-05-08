@@ -20,6 +20,8 @@ let crawlState = {
         linksFilter: {
             internalStatusCode: 'all',
             externalStatusCode: 'all',
+            internalPlacement: 'all',
+            externalPlacement: 'all',
             internalSearch: '',
             externalSearch: ''
         }
@@ -1014,6 +1016,14 @@ function applyLinksFilter() {
         });
     }
 
+    // Apply placement filter for internal links
+    const internalPlacementFilter = crawlState.filters.linksFilter.internalPlacement;
+    if (internalPlacementFilter && internalPlacementFilter !== 'all') {
+        internalLinks = internalLinks.filter(link =>
+            (link.placement || 'body') === internalPlacementFilter
+        );
+    }
+
     // Apply search filter for internal links (with column mode)
     const internalSearch = crawlState.filters.linksFilter.internalSearch.toLowerCase();
     if (internalSearch) {
@@ -1046,6 +1056,14 @@ function applyLinksFilter() {
                 default: return true;
             }
         });
+    }
+
+    // Apply placement filter for external links
+    const externalPlacementFilter = crawlState.filters.linksFilter.externalPlacement;
+    if (externalPlacementFilter && externalPlacementFilter !== 'all') {
+        externalLinks = externalLinks.filter(link =>
+            (link.placement || 'body') === externalPlacementFilter
+        );
     }
 
     // Apply search filter for external links
@@ -1085,6 +1103,16 @@ function searchInternalLinks(searchText) {
 
 function searchExternalLinks(searchText) {
     crawlState.filters.linksFilter.externalSearch = searchText;
+    applyLinksFilter();
+}
+
+function filterInternalPlacement(value) {
+    crawlState.filters.linksFilter.internalPlacement = value;
+    applyLinksFilter();
+}
+
+function filterExternalPlacement(value) {
+    crawlState.filters.linksFilter.externalPlacement = value;
     applyLinksFilter();
 }
 
@@ -2800,15 +2828,22 @@ function renderExternalRow(row, urlData, index) {
     });
 }
 
+function placementBadge(placement) {
+    if (!placement) return '<span class="placement-badge placement-body">Body</span>';
+    const label = placement.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const cssClass = 'placement-' + placement;
+    return `<span class="placement-badge ${cssClass}">${label}</span>`;
+}
+
 function renderInternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
-    const placement = link.placement ? link.placement.charAt(0).toUpperCase() + link.placement.slice(1) : 'Unknown';
+    const placementHtml = placementBadge(link.placement);
 
     row.appendChild(createUrlCell(link.source_url));
     row.appendChild(createUrlCell(link.target_url));
 
-    const remaining = [statusBadge, link.anchor_text || '', placement];
-    const remainingTitles = [link.target_status || '', link.anchor_text || '', placement];
+    const remaining = [statusBadge, link.anchor_text || '', placementHtml];
+    const remainingTitles = [link.target_status || '', link.anchor_text || '', link.placement || 'body'];
     remaining.forEach((html, i) => {
         const td = document.createElement('td');
         td.innerHTML = html;
@@ -2819,13 +2854,13 @@ function renderInternalLinkRow(row, link, index) {
 
 function renderExternalLinkRow(row, link, index) {
     const statusBadge = link.target_status ? `<span class="status-badge status-${Math.floor(link.target_status / 100)}xx">${link.target_status}</span>` : '';
-    const placement = link.placement ? link.placement.charAt(0).toUpperCase() + link.placement.slice(1) : 'Unknown';
+    const placementHtml = placementBadge(link.placement);
 
     row.appendChild(createUrlCell(link.source_url));
     row.appendChild(createUrlCell(link.target_url));
 
-    const remaining = [statusBadge, link.target_domain || '', placement];
-    const remainingTitles = [link.target_status || '', link.target_domain || '', placement];
+    const remaining = [statusBadge, link.target_domain || '', placementHtml];
+    const remainingTitles = [link.target_status || '', link.target_domain || '', link.placement || 'body'];
     remaining.forEach((html, i) => {
         const td = document.createElement('td');
         td.innerHTML = html;
