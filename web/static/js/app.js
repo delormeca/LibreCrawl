@@ -1233,7 +1233,7 @@ const columnCopyMap = {
 // Clipboard helper — works on HTTP (non-HTTPS) via execCommand fallback
 function copyToClipboard(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        copyToClipboard(text);
+        navigator.clipboard.writeText(text);
     } else {
         const ta = document.createElement('textarea');
         ta.value = text;
