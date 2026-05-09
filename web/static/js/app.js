@@ -1230,22 +1230,6 @@ const columnCopyMap = {
     externalLinksTable: { scroller: 'externalLinks', extractor: extractExternalLinkColumn },
 };
 
-// Clipboard helper — works on HTTP (non-HTTPS) via execCommand fallback
-function copyToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-    } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-    }
-}
-
 // Add visible copy buttons to every column header + a "copy all" button
 function setupColumnCopy() {
     document.querySelectorAll('.data-table').forEach(table => {
@@ -1288,7 +1272,7 @@ function copySingleColumn(tableId, entry, colIndex, headerText) {
         return;
     }
     const values = [headerText, ...scroller.data.map(item => entry.extractor(item, colIndex))];
-    copyToClipboard(values.join('\n'));
+    navigator.clipboard.writeText(values.join('\n'));
     showNotification(`Copied ${scroller.data.length} rows from "${headerText}"`, 'success');
 }
 
@@ -1310,7 +1294,7 @@ function copyAllColumns(tableId, entry) {
         }
         rows.push(cols.join('\t'));
     });
-    copyToClipboard(rows.join('\n'));
+    navigator.clipboard.writeText(rows.join('\n'));
     showNotification(`Copied ${scroller.data.length} rows (all columns)`, 'success');
 }
 
@@ -2747,7 +2731,7 @@ function createUrlCell(url) {
     copyBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
     copyBtn.onclick = (e) => {
         e.stopPropagation();
-        copyToClipboard(url);
+        navigator.clipboard.writeText(url);
         showNotification('URL copied', 'success');
     };
     actions.appendChild(copyBtn);
