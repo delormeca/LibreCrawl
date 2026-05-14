@@ -42,6 +42,10 @@ let virtualScrollers = {
     content: null
 };
 
+// Claims extraction state
+let claimsData = {};     // url -> [{claim, source_text}]
+let claimsLoaded = false;
+
 // Initialize application
 document.addEventListener('DOMContentLoaded', async function() {
     await initializeApp();
@@ -539,6 +543,8 @@ function pollCrawlProgress() {
                 if (cvMode) {
                     pollEmbeddingProgress();
                 }
+                // Show claims extraction banner if enabled
+                showClaimsExtractionBanner();
             }
         })
         .catch(error => {
@@ -1480,7 +1486,12 @@ function switchTab(tabName) {
 
         // Load content data if switching to Content tab
         if (tabName === 'content') {
-            updateContentTable();
+            if (!claimsLoaded) {
+                loadClaimsData().then(() => updateContentTable());
+            } else {
+                updateContentTable();
+            }
+            showClaimsExtractionBanner();
         }
 
         // Force virtual scroller viewport update for newly visible tabs
@@ -2127,10 +2138,11 @@ async function runExportAll() {
         images:     document.getElementById('exp-images').checked,
         embeddings: document.getElementById('exp-embeddings')?.checked || false,
         linkgraph:  document.getElementById('exp-linkgraph')?.checked || false,
+        claims:     document.getElementById('exp-claims')?.checked || false,
     };
 
     // Must pick at least one
-    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images && !opts.embeddings && !opts.linkgraph) {
+    if (!opts.urls && !opts.body_text && !opts.links && !opts.issues && !opts.images && !opts.embeddings && !opts.linkgraph && !opts.claims) {
         showNotification('Select at least one export option', 'error');
         return;
     }
@@ -2928,6 +2940,24 @@ function renderContentRow(row, urlData, index) {
     words.textContent = urlData.word_count || 0;
     row.appendChild(words);
 
+    // Claims count badge
+    const claimsCell = document.createElement('td');
+    const urlClaims = claimsData[urlData.url] || [];
+    if (urlClaims.length > 0) {
+        const badge = document.createElement('span');
+        badge.textContent = urlClaims.length;
+        badge.style.cssText = 'display:inline-block;background:#2e7d32;color:white;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;cursor:pointer;';
+        badge.title = 'Click to view claims';
+        badge.addEventListener('click', () => {
+            toggleClaimsPanel(row, urlData.url, urlClaims);
+        });
+        claimsCell.appendChild(badge);
+    } else {
+        claimsCell.textContent = '—';
+        claimsCell.style.cssText = 'color:#9ca3af;text-align:center;';
+    }
+    row.appendChild(claimsCell);
+
     const body = document.createElement('td');
     const bodyText = urlData.body_text || '';
     const preview = bodyText.substring(0, 200) + (bodyText.length > 200 ? '...' : '');
@@ -3085,4 +3115,236 @@ function saveOpenAIKey() {
             document.getElementById('openaiApiKey').placeholder = 'sk-...saved';
         }
     });
+}
+
+// ─── Claims Extraction ───────────────────────────────────────────────
+
+async function loadClaimsData() {
+    try {
+        const resp = await fetch('/api/claims_list');
+        const data = await resp.json();
+        if (data.success && data.claims) {
+            claimsData = {};
+            data.claims.forEach(c => {
+                if (!claimsData[c.url]) claimsData[c.url] = [];
+                claimsData[c.url].push({ claim: c.claim, source_text: c.source_text });
+            });
+            claimsLoaded = true;
+            return data.total;
+        }
+    } catch (e) {
+        console.error('Failed to load claims:', e);
+    }
+    return 0;
+}
+
+function toggleClaimsPanel(row, url, claims) {
+    const existingPanel = row.nextElementSibling;
+    if (existingPanel && existingPanel.classList.contains('claims-panel-row')) {
+        existingPanel.remove();
+        return;
+    }
+    document.querySelectorAll('.claims-panel-row').forEach(el => el.remove());
+
+    const panelRow = document.createElement('tr');
+    panelRow.className = 'claims-panel-row';
+    const panelCell = document.createElement('td');
+    panelCell.colSpan = row.children.length;
+    panelCell.style.cssText = 'padding:12px 20px;background:#f8f9fa;border-left:3px solid #2e7d32;';
+
+    let html = '<div style="max-height:300px;overflow-y:auto;">';
+    claims.forEach((c, i) => {
+        html += `
+            <div style="margin-bottom:10px;${i > 0 ? 'border-top:1px solid #e0e0e0;padding-top:10px;' : ''}">
+                <div style="font-weight:500;color:#333;">${escapeHtml(c.claim)}</div>
+                <div style="font-size:12px;color:#888;margin-top:3px;font-style:italic;">${escapeHtml(c.source_text)}</div>
+            </div>`;
+    });
+    html += '</div>';
+
+    panelCell.innerHTML = html;
+    panelRow.appendChild(panelCell);
+    row.after(panelRow);
+}
+
+function showClaimsExtractionBanner() {
+    if (!currentSettings.extractClaims) return;
+
+    fetch('/api/claims_status')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'completed') {
+                showClaimsCompletedBanner(data.total_claims);
+            } else if (data.status === 'running') {
+                showClaimsProgressBar();
+                pollClaimsProgress();
+            } else {
+                showClaimsPromptBanner();
+            }
+        })
+        .catch(() => {});
+}
+
+function showClaimsPromptBanner() {
+    const existing = document.getElementById('claims-banner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'claims-banner';
+    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;';
+    banner.innerHTML = '<span>No claims extracted for this crawl.</span>' +
+        '<button onclick="showClaimsCostPopup()" style="background:#2e7d32;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Extract Claims</button>';
+    const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
+    if (contentArea) contentArea.prepend(banner);
+}
+
+function showClaimsCompletedBanner(totalClaims) {
+    const existing = document.getElementById('claims-banner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'claims-banner';
+    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;';
+    banner.innerHTML = '<span><strong>' + totalClaims + ' claims extracted</strong></span>' +
+        '<div>' +
+        '<button onclick="showClaimsCostPopup()" style="background:transparent;color:#2e7d32;border:1px solid #2e7d32;padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:8px;">Re-extract</button>' +
+        '<button onclick="exportClaims()" style="background:#2e7d32;color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">Export Claims</button>' +
+        '</div>';
+    const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
+    if (contentArea) contentArea.prepend(banner);
+}
+
+async function showClaimsCostPopup() {
+    try {
+        const resp = await fetch('/api/estimate_claims', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}',
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            alert(data.error || 'Failed to estimate cost');
+            return;
+        }
+
+        const modal = document.createElement('div');
+        modal.id = 'claims-cost-modal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+        modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);">' +
+            '<h3 style="margin:0 0 16px;">Claim Extraction</h3>' +
+            '<p><strong>' + data.eligible_pages + '</strong> eligible pages (' + data.filtered_out + ' filtered out)</p>' +
+            '<p>Estimated cost: <strong>$' + data.estimated_cost.toFixed(2) + ' USD</strong> (' + data.model + ')</p>' +
+            '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;">' +
+            '<button onclick="document.getElementById(\'claims-cost-modal\').remove()" style="padding:8px 20px;border:1px solid #ccc;background:white;border-radius:4px;cursor:pointer;">Cancel</button>' +
+            '<button onclick="startClaimsExtraction()" style="padding:8px 20px;background:#2e7d32;color:white;border:none;border-radius:4px;cursor:pointer;">Extract</button>' +
+            '</div></div>';
+        document.body.appendChild(modal);
+    } catch (e) {
+        alert('Failed to estimate cost: ' + e.message);
+    }
+}
+
+async function startClaimsExtraction() {
+    const modal = document.getElementById('claims-cost-modal');
+    if (modal) modal.remove();
+
+    try {
+        const resp = await fetch('/api/extract_claims', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: '{}',
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            alert(data.error || 'Failed to start extraction');
+            return;
+        }
+
+        showClaimsProgressBar();
+        pollClaimsProgress();
+    } catch (e) {
+        alert('Failed to start extraction: ' + e.message);
+    }
+}
+
+function showClaimsProgressBar() {
+    const existing = document.getElementById('claims-banner');
+    if (existing) existing.remove();
+
+    const bar = document.createElement('div');
+    bar.id = 'claims-progress';
+    bar.style.cssText = 'background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px 16px;margin:10px 0;';
+    bar.innerHTML = '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
+        '<span>Extracting claims...</span>' +
+        '<span id="claims-progress-text">0 / 0 pages</span>' +
+        '</div>' +
+        '<div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;">' +
+        '<div id="claims-progress-bar" style="background:#1976d2;height:100%;width:0%;transition:width 0.3s;"></div>' +
+        '</div>';
+    const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
+    if (contentArea) contentArea.prepend(bar);
+}
+
+function pollClaimsProgress() {
+    const interval = setInterval(async () => {
+        try {
+            const resp = await fetch('/api/claims_status');
+            const data = await resp.json();
+
+            const pct = data.total > 0 ? (data.processed / data.total * 100) : 0;
+            const bar = document.getElementById('claims-progress-bar');
+            const text = document.getElementById('claims-progress-text');
+
+            if (bar) bar.style.width = pct + '%';
+            if (text) text.textContent = data.processed + ' / ' + data.total + ' pages (' + data.total_claims + ' claims)';
+
+            if (data.status !== 'running') {
+                clearInterval(interval);
+                const progressEl = document.getElementById('claims-progress');
+                if (progressEl) progressEl.remove();
+
+                claimsLoaded = false;
+                await loadClaimsData();
+                showClaimsCompletedBanner(data.total_claims);
+
+                // Refresh content table to show updated claim counts
+                updateContentTable();
+            }
+        } catch (e) {
+            clearInterval(interval);
+        }
+    }, 2000);
+}
+
+async function exportClaims() {
+    try {
+        const resp = await fetch('/api/claims_list');
+        const data = await resp.json();
+
+        if (!data.success || !data.claims.length) {
+            alert('No claims to export');
+            return;
+        }
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'claims_export_' + new Date().toISOString().split('T')[0] + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert('Export failed: ' + e.message);
+    }
+}
+
+function toggleExtractClaims(enabled) {
+    currentSettings.extractClaims = enabled;
+    try {
+        localStorage.setItem('librecrawl_settings', JSON.stringify(currentSettings));
+    } catch (err) {
+        console.warn('Failed to save extractClaims setting:', err);
+    }
 }

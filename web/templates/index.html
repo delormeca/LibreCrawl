@@ -478,11 +478,12 @@
                                 <table class="data-table" id="contentTable">
                                     <thead>
                                         <tr>
-                                            <th style="width:30%">URL</th>
-                                            <th style="width:15%">Title</th>
-                                            <th style="width:12%">H1</th>
+                                            <th style="width:28%">URL</th>
+                                            <th style="width:14%">Title</th>
+                                            <th style="width:11%">H1</th>
                                             <th style="width:5%">Words</th>
-                                            <th style="width:38%">Body Text</th>
+                                            <th style="width:6%">Claims</th>
+                                            <th style="width:36%">Body Text</th>
                                         </tr>
                                     </thead>
                                     <tbody id="contentTableBody">
@@ -683,6 +684,14 @@
                             LinkGraph Mode
                         </label>
                         <span class="setting-help">Extracts all internal links with rich context + page content split by sections. Skips SEO analysis. Outputs a JSON for internal linking analysis &amp; vectorization.</span>
+                    </div>
+
+                    <div class="setting-group" style="margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="extractClaims" checked>
+                            Extract Claims
+                        </label>
+                        <span class="setting-help">After crawl completes, extract factual claims from page content using AI. Requires an OpenAI API key.</span>
                     </div>
 
                     <div class="setting-group">
@@ -1215,6 +1224,10 @@
                 <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
                     <input type="checkbox" id="exp-linkgraph" style="width:16px; height:16px;">
                     <span><strong>LinkGraph JSON</strong> – all links with context, sections, orphan detection (for internal linking analysis)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; color:#1f2937;">
+                    <input type="checkbox" id="exp-claims" checked style="width:16px; height:16px;">
+                    <span><strong>Claims</strong> – extracted claims per page (requires prior extraction)</span>
                 </label>
             </div>
             <div style="margin-top:16px; padding-top:14px; border-top:1px solid #e5e7eb;">

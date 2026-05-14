@@ -3,6 +3,7 @@ let currentSettings = {};
 let defaultSettings = {
     // Crawler settings
     contentVectorizationMode: false,
+    extractClaims: true,  // Extract claims after crawl (requires OpenAI key)
     maxDepth: 3,
     maxUrls: 5000000,
     crawlDelay: 1,
@@ -504,7 +505,8 @@ function collectSettingsFromForm() {
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
         'stealthMode',
-        'customCSS', 'issueExclusionPatterns'
+        'customCSS', 'issueExclusionPatterns',
+        'extractClaims'
     ];
 
     formFields.forEach(fieldId => {
