@@ -205,6 +205,19 @@ def init_crawl_tables():
             )
         ''')
 
+        # === Claims extraction ===
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS page_claims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                crawl_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                claim TEXT NOT NULL,
+                source_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_claims_crawl_url ON page_claims(crawl_id, url)')
+
         # Create indexes for performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawls_user_status ON crawls(user_id, status)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_crawls_session ON crawls(session_id)')
@@ -247,6 +260,12 @@ def init_crawl_tables():
             cursor.execute("ALTER TABLE crawls ADD COLUMN crawl_mode TEXT DEFAULT 'standard'")
         except:
             pass  # column already exists
+
+        # Migration for claims stats
+        try:
+            cursor.execute("ALTER TABLE crawls ADD COLUMN claims_stats TEXT DEFAULT NULL")
+        except Exception:
+            pass  # Column already exists
 
         print("Crawl persistence tables initialized successfully")
 
@@ -858,3 +877,63 @@ def get_database_size_mb():
     except Exception as e:
         print(f"Error getting database size: {e}")
         return 0
+
+
+# === Claims CRUD ===
+
+def save_claims_batch(crawl_id, claims):
+    """Save a batch of claims to the database.
+    claims: list of dicts with keys: url, claim, source_text
+    Note: get_db() context manager auto-commits on exit.
+    """
+    with get_db() as conn:
+        conn.executemany(
+            'INSERT INTO page_claims (crawl_id, url, claim, source_text) VALUES (?, ?, ?, ?)',
+            [(crawl_id, c['url'], c['claim'], c['source_text']) for c in claims]
+        )
+    return True
+
+
+def delete_claims(crawl_id):
+    """Delete all claims for a crawl (used before re-extraction and on crawl delete)."""
+    with get_db() as conn:
+        conn.execute('DELETE FROM page_claims WHERE crawl_id = ?', (crawl_id,))
+    return True
+
+
+def load_claims(crawl_id):
+    """Load all claims for a crawl, ordered by URL."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            'SELECT url, claim, source_text FROM page_claims WHERE crawl_id = ? ORDER BY url, id',
+            (crawl_id,)
+        )
+        return [{'url': row[0], 'claim': row[1], 'source_text': row[2]} for row in cursor.fetchall()]
+
+
+def count_claims(crawl_id):
+    """Count total claims for a crawl."""
+    with get_db() as conn:
+        cursor = conn.execute('SELECT COUNT(*) FROM page_claims WHERE crawl_id = ?', (crawl_id,))
+        return cursor.fetchone()[0]
+
+
+def update_claims_stats(crawl_id, stats_dict):
+    """Update claims_stats JSON on the crawls table."""
+    import json
+    with get_db() as conn:
+        conn.execute(
+            'UPDATE crawls SET claims_stats = ? WHERE id = ?',
+            (json.dumps(stats_dict), crawl_id)
+        )
+
+
+def get_claims_stats(crawl_id):
+    """Get claims_stats JSON for a crawl."""
+    import json
+    with get_db() as conn:
+        cursor = conn.execute('SELECT claims_stats FROM crawls WHERE id = ?', (crawl_id,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            return json.loads(row[0])
+        return None
