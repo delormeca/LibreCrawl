@@ -3187,7 +3187,7 @@ function toggleClaimsPanel(row, url, claims) {
     panelRow.className = 'claims-panel-row';
     const panelCell = document.createElement('td');
     panelCell.colSpan = row.children.length;
-    panelCell.style.cssText = 'padding:12px 20px;background:#f8f9fa;border-left:3px solid #2e7d32;';
+    panelCell.style.cssText = 'padding:12px 20px;background:#f8f9fa;border-left:3px solid #2e7d32;color:#333;';
 
     let html = '<div style="max-height:300px;overflow-y:auto;">';
     claims.forEach((c, i) => {
@@ -3216,7 +3216,17 @@ function showClaimsExtractionBanner() {
                 showClaimsProgressBar();
                 pollClaimsProgress();
             } else {
-                showClaimsPromptBanner();
+                // Check if API key is set — if so, go straight to cost popup
+                fetch('/api/check_openai_key')
+                    .then(r => r.json())
+                    .then(keyData => {
+                        if (keyData.valid) {
+                            showClaimsCostPopup();
+                        } else {
+                            showClaimsPromptBanner();
+                        }
+                    })
+                    .catch(() => showClaimsPromptBanner());
             }
         })
         .catch(() => {});
@@ -3228,7 +3238,7 @@ function showClaimsPromptBanner() {
 
     const banner = document.createElement('div');
     banner.id = 'claims-banner';
-    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;';
+    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#333;';
     banner.innerHTML = '<span>No claims extracted for this crawl.</span>' +
         '<button onclick="showClaimsCostPopup()" style="background:#2e7d32;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Extract Claims</button>';
     const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
@@ -3241,7 +3251,7 @@ function showClaimsCompletedBanner(totalClaims) {
 
     const banner = document.createElement('div');
     banner.id = 'claims-banner';
-    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;';
+    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#333;';
     banner.innerHTML = '<span><strong>' + totalClaims + ' claims extracted</strong></span>' +
         '<div>' +
         '<button onclick="showClaimsCostPopup()" style="background:transparent;color:#2e7d32;border:1px solid #2e7d32;padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:8px;">Re-extract</button>' +
@@ -3262,7 +3272,7 @@ async function showClaimsCostPopup() {
             const modal = document.createElement('div');
             modal.id = 'claims-cost-modal';
             modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
-            modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);">' +
+            modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);color:#333;">' +
                 '<h3 style="margin:0 0 16px;">OpenAI API Key Required</h3>' +
                 '<p style="color:#666;margin:0 0 12px;">Claims extraction uses GPT-4o-mini. Enter your OpenAI API key:</p>' +
                 '<input type="password" id="claims-openai-key" placeholder="sk-..." ' +
@@ -3293,7 +3303,7 @@ async function showClaimsCostPopup() {
         const modal = document.createElement('div');
         modal.id = 'claims-cost-modal';
         modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
-        modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);">' +
+        modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);color:#333;">' +
             '<h3 style="margin:0 0 16px;">Claim Extraction</h3>' +
             '<p><strong>' + data.eligible_pages + '</strong> eligible pages (' + data.filtered_out + ' filtered out)</p>' +
             '<p>Estimated cost: <strong>$' + data.estimated_cost.toFixed(2) + ' USD</strong> (' + data.model + ')</p>' +
@@ -3369,7 +3379,7 @@ function showClaimsProgressBar() {
 
     const bar = document.createElement('div');
     bar.id = 'claims-progress';
-    bar.style.cssText = 'background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px 16px;margin:10px 0;';
+    bar.style.cssText = 'background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px 16px;margin:10px 0;color:#333;';
     bar.innerHTML = '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
         '<span>Extracting claims...</span>' +
         '<span id="claims-progress-text">0 / 0 pages</span>' +
