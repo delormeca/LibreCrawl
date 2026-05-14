@@ -53,6 +53,9 @@ init_db()
 # Embedding progress state
 embed_progress = {'current': 0, 'total': 0, 'failed': 0, 'status': 'idle'}
 
+# Claims extraction progress state
+claims_progress = {'processed': 0, 'total': 0, 'total_claims': 0, 'failed': 0, 'status': 'idle'}
+
 # User-provided OpenAI API key (overrides env var when set)
 user_openai_key = None
 
@@ -971,6 +974,145 @@ def check_openai_key():
     return jsonify({'valid': ok, 'error': error})
 
 
+# === Claims Extraction Endpoints ===
+
+@app.route('/api/estimate_claims', methods=['POST'])
+@login_required
+def estimate_claims_endpoint():
+    """Estimate cost of claim extraction for a crawl."""
+    data = request.get_json(silent=True) or {}
+    crawl_id = data.get('crawl_id')
+
+    crawler = get_or_create_crawler()
+
+    if crawl_id:
+        from src.crawl_db import load_crawled_urls
+        all_pages = load_crawled_urls(crawl_id)
+    else:
+        all_pages = list(crawler.crawl_results)
+        crawl_id = session.get('current_crawl_id')
+
+    if not all_pages:
+        return jsonify({'error': 'No crawl data available', 'success': False}), 400
+
+    from src.core.claim_extractor import filter_eligible_pages, estimate_cost
+    eligible = filter_eligible_pages(all_pages)
+    cost_info = estimate_cost(eligible)
+    cost_info['filtered_out'] = len(all_pages) - len(eligible)
+    cost_info['crawl_id'] = crawl_id
+    cost_info['success'] = True
+
+    return jsonify(cost_info)
+
+
+@app.route('/api/extract_claims', methods=['POST'])
+@login_required
+def extract_claims_endpoint():
+    """Start background claim extraction for a crawl."""
+    global claims_progress
+
+    if not user_openai_key:
+        return jsonify({'error': 'OpenAI API key not set. Use /api/set_openai_key first.', 'success': False}), 400
+
+    if claims_progress.get('status') == 'running':
+        return jsonify({'error': 'Claim extraction already in progress', 'success': False}), 409
+
+    data = request.get_json(silent=True) or {}
+    crawl_id = data.get('crawl_id') or session.get('current_crawl_id')
+
+    crawler = get_or_create_crawler()
+
+    if crawl_id:
+        from src.crawl_db import load_crawled_urls
+        all_pages = load_crawled_urls(crawl_id)
+    else:
+        all_pages = list(crawler.crawl_results)
+
+    if not all_pages:
+        return jsonify({'error': 'No crawl data available', 'success': False}), 400
+
+    from src.core.claim_extractor import filter_eligible_pages, estimate_cost, extract_claims
+    eligible = filter_eligible_pages(all_pages)
+
+    if not eligible:
+        return jsonify({'error': 'No eligible pages for claim extraction', 'success': False}), 400
+
+    cost_info = estimate_cost(eligible)
+
+    claims_progress = {
+        'processed': 0, 'total': len(eligible), 'total_claims': 0,
+        'failed': 0, 'status': 'running', 'error': None,
+    }
+
+    api_key = user_openai_key
+
+    def run_extraction():
+        global claims_progress
+        try:
+            def progress_cb(processed, total, total_claims, failed):
+                claims_progress.update({
+                    'processed': processed, 'total': total,
+                    'total_claims': total_claims, 'failed': failed,
+                    'status': 'running',
+                })
+
+            stats = extract_claims(crawl_id, eligible, api_key, on_progress=progress_cb)
+            claims_progress.update({
+                'processed': stats['processed'], 'total': stats['total_pages'],
+                'total_claims': stats['total_claims'], 'failed': stats['failed'],
+                'status': stats['status'], 'error': None,
+            })
+        except Exception as e:
+            logger.error(f"Claim extraction failed: {e}")
+            claims_progress.update({'status': 'failed', 'error': str(e)})
+
+    import threading as _threading
+    _threading.Thread(target=run_extraction, daemon=True).start()
+
+    return jsonify({
+        'status': 'started',
+        'eligible_pages': len(eligible),
+        'estimated_cost': cost_info['estimated_cost'],
+        'crawl_id': crawl_id,
+        'success': True,
+    })
+
+
+@app.route('/api/claims_status', methods=['GET'])
+@login_required
+def claims_status_endpoint():
+    """Get current claim extraction progress."""
+    crawl_id = request.args.get('crawl_id', type=int)
+
+    if claims_progress.get('status') == 'running':
+        return jsonify({**claims_progress, 'success': True})
+
+    if crawl_id:
+        from src.crawl_db import get_claims_stats, count_claims
+        stats = get_claims_stats(crawl_id)
+        if stats:
+            stats['success'] = True
+            return jsonify(stats)
+
+    return jsonify({**claims_progress, 'success': True})
+
+
+@app.route('/api/claims_list', methods=['GET'])
+@login_required
+def claims_list_endpoint():
+    """Get all claims for a crawl."""
+    crawl_id = request.args.get('crawl_id', type=int) or session.get('current_crawl_id')
+
+    if not crawl_id:
+        return jsonify({'error': 'No crawl_id provided', 'success': False}), 400
+
+    from src.crawl_db import load_claims, count_claims
+    claims = load_claims(crawl_id)
+    total = count_claims(crawl_id)
+
+    return jsonify({'claims': claims, 'total': total, 'crawl_id': crawl_id, 'success': True})
+
+
 @app.route('/api/visualization_data')
 @login_required
 def visualization_data():
@@ -1383,6 +1525,9 @@ def delete_crawl_endpoint(crawl_id):
 
         if user_id and crawl.get('user_id') != user_id:
             return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+
+        from src.crawl_db import delete_claims
+        delete_claims(crawl_id)
 
         success = delete_crawl(crawl_id)
         return jsonify({'success': success, 'message': 'Crawl deleted successfully' if success else 'Failed to delete crawl'})
