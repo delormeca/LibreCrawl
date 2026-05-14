@@ -1748,6 +1748,104 @@ def generate_linkgraph_json_export(crawl_id):
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+def generate_claims_json_export(crawl_id, crawl_results):
+    """Generate claims export as JSON, grouped by page."""
+    from urllib.parse import urlparse
+    from src.crawl_db import load_claims
+
+    claims = load_claims(crawl_id)
+
+    if not claims:
+        return json.dumps({'export_date': datetime.now().strftime('%Y-%m-%d'), 'total_claims': 0, 'pages': []})
+
+    # Build URL->metadata lookup from crawl results
+    url_meta = {}
+    results = crawl_results if isinstance(crawl_results, list) else list(crawl_results.values())
+    for r in results:
+        url = r.get('url', '')
+        parsed = urlparse(url)
+        url_meta[url] = {
+            'title': r.get('title', ''),
+            'h1': r.get('h1', ''),
+            'slug': parsed.path,
+            'lang': r.get('lang', ''),
+            'word_count': r.get('word_count', 0),
+        }
+
+    base_domain = ''
+    if results:
+        parsed = urlparse(results[0].get('url', ''))
+        base_domain = parsed.netloc
+
+    export = {
+        'export_date': datetime.now().strftime('%Y-%m-%d'),
+        'domain': base_domain,
+        'total_claims': len(claims),
+    }
+
+    # Group claims by URL
+    pages = {}
+    for c in claims:
+        url = c['url']
+        if url not in pages:
+            meta = url_meta.get(url, {})
+            pages[url] = {
+                'url': url,
+                'slug': meta.get('slug', ''),
+                'title': meta.get('title', ''),
+                'h1': meta.get('h1', ''),
+                'lang': meta.get('lang', ''),
+                'claims': [],
+            }
+        pages[url]['claims'].append({
+            'claim': c['claim'],
+            'source_text': c['source_text'],
+        })
+
+    export['total_pages'] = len(pages)
+    export['pages'] = list(pages.values())
+
+    return json.dumps(export, ensure_ascii=False, indent=2)
+
+
+def generate_claims_csv_export(crawl_id, crawl_results):
+    """Generate claims export as CSV. One row per claim with page metadata."""
+    import csv
+    import io
+    from urllib.parse import urlparse
+    from src.crawl_db import load_claims
+
+    claims = load_claims(crawl_id)
+
+    # Build URL->metadata lookup
+    url_meta = {}
+    results = crawl_results if isinstance(crawl_results, list) else list(crawl_results.values())
+    for r in results:
+        url = r.get('url', '')
+        parsed = urlparse(url)
+        url_meta[url] = {
+            'title': r.get('title', ''),
+            'h1': r.get('h1', ''),
+            'slug': parsed.path,
+            'lang': r.get('lang', ''),
+            'word_count': r.get('word_count', 0),
+        }
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['url', 'slug', 'page_title', 'claim', 'source_text', 'page_word_count', 'page_lang', 'h1'])
+
+    for c in claims:
+        meta = url_meta.get(c['url'], {})
+        writer.writerow([
+            c['url'], meta.get('slug', ''), meta.get('title', ''),
+            c['claim'], c['source_text'],
+            meta.get('word_count', ''), meta.get('lang', ''), meta.get('h1', ''),
+        ])
+
+    return output.getvalue()
+
+
 @app.route('/api/export_data', methods=['POST'])
 @login_required
 def export_data():
@@ -2106,6 +2204,18 @@ def export_all():
                     linkgraph_content = generate_linkgraph_json_export(crawl_id)
                     if linkgraph_content:
                         zf.writestr(f'librecrawl_linkgraph_{ts_file}.json', linkgraph_content)
+
+            # 8. Claims
+            if options.get('claims', True):
+                crawl_id = session.get('current_crawl_id')
+                if crawl_id:
+                    from src.crawl_db import count_claims
+                    if count_claims(crawl_id) > 0:
+                        claims_json = generate_claims_json_export(crawl_id, urls)
+                        zf.writestr(f'librecrawl_claims_{ts_file}.json', claims_json)
+
+                        claims_csv = generate_claims_csv_export(crawl_id, urls)
+                        zf.writestr(f'librecrawl_claims_{ts_file}.csv', claims_csv)
 
         buf.seek(0)
         return send_file(
