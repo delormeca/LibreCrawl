@@ -720,12 +720,15 @@
                         <span class="setting-help">Follow 3xx redirects automatically</span>
                     </div>
 
-                    <div class="setting-group">
+                    <div class="setting-group" id="crawlExternalLinksGroup">
                         <label class="checkbox-label">
-                            <input type="checkbox" id="crawlExternalLinks">
+                            <input type="checkbox" id="crawlExternalLinks" onchange="toggleExternalLinksWarning(this)">
                             Crawl External Links
                         </label>
                         <span class="setting-help">Include external domains in crawl</span>
+                        <span id="crawlExternalLinksWarning" style="display:none; color:#d97706; font-size:0.8rem; margin-top:4px;">
+                            ⚠ External domains will be crawled — this increases crawl time and cost
+                        </span>
                     </div>
                 </div>
 

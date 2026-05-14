@@ -244,6 +244,30 @@ function startCrawl() {
     clearAllTables();
     resetStats();
 
+    // Warn user if Crawl External Links is enabled
+    const externalLinksEnabled = document.getElementById('crawlExternalLinks')?.checked;
+    if (externalLinksEnabled) {
+        const choice = confirm(
+            '"Crawl External Links" is enabled. External domains linked from the site will also be crawled. ' +
+            'This increases crawl time and may crawl hundreds of extra pages.\n\n' +
+            'Click OK to continue anyway, or Cancel to disable external links and start.'
+        );
+        if (!choice) {
+            // "Cancel" = Disable & Start
+            const checkbox = document.getElementById('crawlExternalLinks');
+            if (checkbox) {
+                checkbox.checked = false;
+                // Hide the warning indicator
+                const warning = document.getElementById('crawlExternalLinksWarning');
+                if (warning) warning.style.display = 'none';
+                // Persist the change into currentSettings if available
+                if (typeof currentSettings !== 'undefined') {
+                    currentSettings.crawlExternalLinks = false;
+                }
+            }
+        }
+    }
+
     // Start the actual crawling via Python backend
     startPythonCrawl(url);
 }
@@ -285,6 +309,19 @@ function stopCrawl() {
 
     // Stop Python crawler
     stopPythonCrawl();
+}
+
+function toggleExternalLinksWarning(checkbox) {
+    const warning = document.getElementById('crawlExternalLinksWarning');
+    if (warning) {
+        warning.style.display = checkbox.checked ? 'block' : 'none';
+    }
+    // Keep in sync with crawlExternalLinksGroup highlight
+    const group = document.getElementById('crawlExternalLinksGroup');
+    if (group) {
+        group.style.outline = checkbox.checked ? '2px solid #d97706' : '';
+        group.style.borderRadius = checkbox.checked ? '4px' : '';
+    }
 }
 
 function toggleSitemapInput(event) {
