@@ -4,6 +4,7 @@ import sys
 import json
 import tempfile
 import pytest
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -130,3 +131,81 @@ def test_estimate_cost():
     assert result['estimated_input_tokens'] > 0
     assert result['estimated_cost'] > 0
     assert result['model'] == 'gpt-4o-mini'
+
+
+def test_extract_claims_full_pipeline():
+    """Test the full extraction pipeline with mocked OpenAI API."""
+    from src.core.claim_extractor import filter_eligible_pages, extract_claims
+
+    cleanup = _setup_test_db()
+    try:
+        pages = [
+            {
+                'url': 'https://example.com/about',
+                'status_code': 200,
+                'word_count': 500,
+                'body_text': 'We offer free shipping on orders above $50. Founded in 1990.',
+            }
+        ]
+        eligible = filter_eligible_pages(pages)
+        assert len(eligible) == 1
+
+        # Mock OpenAI response — openai is imported locally inside _extract_claims_for_page,
+        # so we patch openai.OpenAI at the package level.
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "claims": [
+                {"claim": "Free shipping on orders above $50", "source_text": "We offer free shipping on orders above $50."},
+                {"claim": "Company was founded in 1990", "source_text": "Founded in 1990."},
+            ]
+        })
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch('openai.OpenAI', return_value=mock_client):
+            stats = extract_claims(1, eligible, 'fake-key')
+
+        assert stats['status'] == 'completed'
+        assert stats['total_claims'] == 2
+        assert stats['processed'] == 1
+
+        # Verify claims persisted in DB
+        from src.crawl_db import load_claims, count_claims
+        claims = load_claims(1)
+        assert len(claims) == 2
+        claim_texts = {c['claim'] for c in claims}
+        assert 'Free shipping on orders above $50' in claim_texts
+
+    finally:
+        cleanup()
+
+
+def test_claims_json_export_structure():
+    """Verify JSON export produces valid grouped-by-page structure."""
+    from src.crawl_db import save_claims_batch, load_claims
+
+    cleanup = _setup_test_db()
+    try:
+        claims = [
+            {'url': 'https://example.com/about', 'claim': 'Founded in 1990', 'source_text': 'We were founded in 1990.'},
+            {'url': 'https://example.com/about', 'claim': 'Open 24/7', 'source_text': 'We are open 24/7.'},
+            {'url': 'https://example.com/shipping', 'claim': 'Free shipping above $50', 'source_text': 'Free shipping on orders over $50.'},
+        ]
+        save_claims_batch(1, claims)
+
+        loaded = load_claims(1)
+        assert len(loaded) == 3
+
+        # Verify grouping logic
+        grouped = {}
+        for c in loaded:
+            grouped.setdefault(c['url'], []).append(c)
+
+        assert len(grouped) == 2  # 2 distinct pages
+        assert len(grouped['https://example.com/about']) == 2
+        assert len(grouped['https://example.com/shipping']) == 1
+
+    finally:
+        cleanup()
