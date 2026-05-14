@@ -93,3 +93,40 @@ def test_claims_stats():
         assert get_claims_stats(999) is None
     finally:
         cleanup()
+
+
+def test_filter_eligible_pages():
+    from src.core.claim_extractor import filter_eligible_pages
+
+    pages = [
+        {'url': 'https://example.com/', 'status_code': 200, 'word_count': 500, 'body_text': 'Some content here.'},
+        {'url': 'https://example.com/page-2/', 'status_code': 200, 'word_count': 50, 'body_text': 'Short.'},
+        {'url': 'https://example.com/error', 'status_code': 404, 'word_count': 500, 'body_text': 'Not found page.'},
+        {'url': 'https://example.com/page/3/', 'status_code': 200, 'word_count': 500, 'body_text': 'Pagination page.'},
+        {'url': 'https://example.com/about', 'status_code': 200, 'word_count': 300, 'body_text': ''},
+        {'url': 'https://example.com/good-page', 'status_code': 200, 'word_count': 200, 'body_text': 'Lots of good content here.'},
+    ]
+
+    eligible = filter_eligible_pages(pages)
+    urls = [p['url'] for p in eligible]
+
+    assert 'https://example.com/' in urls
+    assert 'https://example.com/good-page' in urls
+    assert len(eligible) == 2
+
+
+def test_estimate_cost():
+    from src.core.claim_extractor import estimate_cost
+
+    pages = [
+        {'word_count': 500},
+        {'word_count': 1000},
+        {'word_count': 300},
+    ]
+
+    result = estimate_cost(pages)
+
+    assert result['eligible_pages'] == 3
+    assert result['estimated_input_tokens'] > 0
+    assert result['estimated_cost'] > 0
+    assert result['model'] == 'gpt-4o-mini'
