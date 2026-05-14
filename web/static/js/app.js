@@ -3253,6 +3253,31 @@ function showClaimsCompletedBanner(totalClaims) {
 
 async function showClaimsCostPopup() {
     try {
+        // Check if OpenAI key is set first
+        const keyResp = await fetch('/api/check_openai_key');
+        const keyData = await keyResp.json();
+
+        if (!keyData.valid) {
+            // Show key input modal
+            const modal = document.createElement('div');
+            modal.id = 'claims-cost-modal';
+            modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+            modal.innerHTML = '<div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.15);">' +
+                '<h3 style="margin:0 0 16px;">OpenAI API Key Required</h3>' +
+                '<p style="color:#666;margin:0 0 12px;">Claims extraction uses GPT-4o-mini. Enter your OpenAI API key:</p>' +
+                '<input type="password" id="claims-openai-key" placeholder="sk-..." ' +
+                    'style="width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:4px;font-family:monospace;box-sizing:border-box;">' +
+                '<div id="claims-key-error" style="color:#d32f2f;font-size:13px;margin-top:6px;display:none;"></div>' +
+                '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">' +
+                '<button onclick="document.getElementById(\'claims-cost-modal\').remove()" style="padding:8px 20px;border:1px solid #ccc;background:white;border-radius:4px;cursor:pointer;">Cancel</button>' +
+                '<button onclick="saveClaimsApiKey()" style="padding:8px 20px;background:#2e7d32;color:white;border:none;border-radius:4px;cursor:pointer;">Save &amp; Continue</button>' +
+                '</div></div>';
+            document.body.appendChild(modal);
+            document.getElementById('claims-openai-key').focus();
+            return;
+        }
+
+        // Key exists — show cost estimate
         const resp = await fetch('/api/estimate_claims', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -3279,6 +3304,38 @@ async function showClaimsCostPopup() {
         document.body.appendChild(modal);
     } catch (e) {
         alert('Failed to estimate cost: ' + e.message);
+    }
+}
+
+async function saveClaimsApiKey() {
+    const key = document.getElementById('claims-openai-key').value.trim();
+    const errorEl = document.getElementById('claims-key-error');
+
+    if (!key) {
+        errorEl.textContent = 'Please enter an API key';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/set_openai_key', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key: key}),
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            // Remove the key input modal and show cost estimate
+            document.getElementById('claims-cost-modal').remove();
+            showClaimsCostPopup(); // Re-call — now key is set, will show cost estimate
+        } else {
+            errorEl.textContent = data.error || 'Invalid API key';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        errorEl.textContent = 'Failed to save key: ' + e.message;
+        errorEl.style.display = 'block';
     }
 }
 
