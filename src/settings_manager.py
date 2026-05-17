@@ -47,6 +47,7 @@ class SettingsManager:
             'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
             # Stealth tab
             'stealthMode',
+            'crawlStrategy',
             # Custom CSS tab
             'customCSS'
         ]
@@ -129,6 +130,9 @@ class SettingsManager:
 
             # Stealth browser settings
             'stealthMode': False,
+
+            # Crawl strategy (replaces stealthMode)
+            'crawlStrategy': 'smart',  # 'smart', 'force_stealth', 'force_fast'
 
             # Custom CSS styling
             'customCSS': '',
@@ -352,6 +356,11 @@ class SettingsManager:
                     # Merge with defaults to ensure all keys are present
                     settings = {**self.default_settings}
                     settings.update(saved_settings)
+
+                    # Migrate stealthMode -> crawlStrategy
+                    if settings.get('stealthMode') and 'crawlStrategy' not in saved_settings:
+                        settings['crawlStrategy'] = 'force_stealth'
+
                     return settings
 
             # Otherwise return defaults
@@ -500,7 +509,7 @@ class SettingsManager:
             'memory_limit': settings['memoryLimit'] * 1024 * 1024,  # Convert MB to bytes
             'log_level': settings['logLevel'],
             'enable_proxy': settings['enableProxy'],
-            'proxy_url': settings['proxyUrl'] if settings['enableProxy'] else None,
+            'proxy_url': settings['proxyUrl'] if settings.get('proxyUrl') else None,
             'custom_headers': self._parse_custom_headers(settings['customHeaders']),
             'discover_sitemaps': settings['discoverSitemaps'],
             'enable_pagespeed': settings['enablePageSpeed'],
@@ -517,7 +526,9 @@ class SettingsManager:
             'issue_exclusion_patterns': [p.strip() for p in settings['issueExclusionPatterns'].split('\n') if p.strip()],
             'enable_duplication_check': settings['enableDuplicationCheck'],
             'duplication_threshold': settings['duplicationThreshold'],
-            'stealth_mode': settings['stealthMode']
+            'crawl_strategy': settings.get('crawlStrategy', 'smart'),
+            # Backward compat: stealth_mode still works for non-JS path
+            'stealth_mode': settings.get('crawlStrategy', 'smart') == 'force_stealth' or settings.get('stealthMode', False),
         }
 
     def _parse_custom_headers(self, headers_text):
