@@ -1097,8 +1097,8 @@ class WebCrawler:
         start_time = time.time()
 
         try:
-            # Use CamoFox if stealth mode is enabled
-            if self.config.get('stealth_mode', False):
+            # Use CamoFox if strategy says stealth, else Chromium
+            if hasattr(self, 'strategy') and self.strategy.should_use_stealth():
                 html_content, status_code = await self.camoufox_renderer.render_page(
                     url,
                     wait_time=self.config.get('js_wait_time', 3),
@@ -1254,18 +1254,32 @@ class WebCrawler:
             return self.seo_extractor.create_empty_result(url, depth, 0, f'JavaScript rendering error: {str(e)}')
 
     async def _crawl_async_with_js(self):
-        """Async crawling loop for JavaScript rendering"""
+        """Async crawling loop with smart mode detection"""
         try:
-            # Initialize JavaScript renderer
-            await self.js_renderer.initialize()
+            from src.core.crawl_strategy import CrawlStrategy
 
-            # Launch CamoFox for crawling (fresh instance — sitemap one was on a different event loop)
-            if self.config.get('stealth_mode', False):
+            # Backward compat: stealth_mode=True without crawl_strategy → force_stealth
+            strategy_name = self.config.get('crawl_strategy', 'smart')
+            if self.config.get('stealth_mode', False) and strategy_name == 'smart':
+                strategy_name = 'force_stealth'
+
+            # Initialize strategy
+            self.strategy = CrawlStrategy(
+                strategy=strategy_name,
+                proxy_url=self.config.get('proxy_url'),
+                fast_concurrency=self.config.get('js_max_concurrent_pages', 3),
+            )
+
+            # Init renderers based on strategy
+            if self.strategy.strategy == 'force_stealth':
                 from src.core.camoufox_renderer import CamoFoxRenderer
                 self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                 await self.camoufox_renderer.start()
+            else:
+                # Smart and Force Fast: start with Chromium
+                await self.js_renderer.initialize()
 
-            max_workers = self.config.get('js_max_concurrent_pages', 3)
+            max_workers = self.strategy.get_concurrency()
             active_tasks = set()
 
             while self.is_running and self.stats['crawled'] < self.config['max_urls']:
@@ -1299,6 +1313,58 @@ class WebCrawler:
                         try:
                             result = await task
                             if result:
+                                # Smart mode: check if page was blocked
+                                if (self.strategy.strategy == 'smart' and
+                                    not self.strategy.should_use_stealth() and
+                                    self._is_blocked(result)):
+
+                                    action = self.strategy.report_block()
+                                    blocked_url = result['url']
+                                    blocked_depth = result.get('depth', 0)
+
+                                    if action == 'retry_stealth':
+                                        print(f"Smart mode: {blocked_url} blocked — retrying with stealth")
+                                        if not self.camoufox_renderer:
+                                            from src.core.camoufox_renderer import CamoFoxRenderer
+                                            self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                                            await self.camoufox_renderer.start()
+                                        try:
+                                            html_content, status_code = await self.camoufox_renderer.render_page(
+                                                blocked_url,
+                                                wait_time=self.config.get('js_wait_time', 3),
+                                                timeout=self.config.get('js_timeout', 30))
+                                            # Re-run extraction on the stealth-fetched HTML
+                                            result['status_code'] = status_code
+                                            result['size'] = len(html_content.encode('utf-8'))
+                                            result['javascript_rendered'] = True
+                                            from bs4 import BeautifulSoup
+                                            soup = BeautifulSoup(html_content, 'html.parser')
+                                            self.seo_extractor.extract_basic_seo_data(soup, result)
+                                            self.seo_extractor.extract_body_text(html_content, result)
+                                            print(f"Smart mode: stealth retry OK for {blocked_url}")
+                                        except Exception as e:
+                                            print(f"Smart mode: stealth retry failed for {blocked_url}: {e}")
+
+                                    elif action == 'escalated':
+                                        print(f"Smart mode: {self.strategy.escalation_threshold} consecutive blocks — ESCALATING to STEALTH")
+                                        if not self.camoufox_renderer:
+                                            from src.core.camoufox_renderer import CamoFoxRenderer
+                                            self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                                            await self.camoufox_renderer.start()
+                                        max_workers = 1
+                                        # Retry the blocked page with stealth (strategy now in stealth mode)
+                                        stealth_result = await self._crawl_url_with_javascript(blocked_url, blocked_depth)
+                                        if stealth_result and not self._is_blocked(stealth_result):
+                                            result = stealth_result
+
+                                    elif action == 'skip':
+                                        print(f"Smart mode: {blocked_url} blocked, no proxy configured — skipping")
+
+                                else:
+                                    # Not blocked — report success
+                                    if hasattr(self, 'strategy') and not self._is_blocked(result):
+                                        self.strategy.report_success()
+
                                 with self.results_lock:
                                     self.crawl_results.append(result)
                                     self.stats['crawled'] += 1
@@ -1366,10 +1432,13 @@ class WebCrawler:
                 else:
                     set_crawl_status(self.crawl_id, 'completed')
 
-            # Clean up
-            await self.js_renderer.cleanup()
+            # Clean up renderers
             if self.camoufox_renderer:
                 await self.camoufox_renderer.stop()
+            if hasattr(self, 'strategy') and self.strategy.strategy != 'force_stealth':
+                await self.js_renderer.cleanup()
+            elif not hasattr(self, 'strategy'):
+                await self.js_renderer.cleanup()
             self.is_running = False
             print(f"Crawl completed. Discovered: {self.stats['discovered']}, Crawled: {self.stats['crawled']}")
 
@@ -1387,9 +1456,22 @@ class WebCrawler:
 
         print(f"Updated linked_from data for {updated_count} URLs")
 
+    def _is_blocked(self, result):
+        """Detect if a page response indicates blocking."""
+        if result.get('status_code') in (403, 503):
+            return True
+        body = result.get('body_text', '')
+        if result.get('status_code') == 200 and len(body) < 100:
+            if any(sig in body.lower() for sig in ['checking your browser', 'cf-browser-verification', 'access denied']):
+                return True
+        return False
+
     def _should_crawl_url(self, url):
         """Check if URL should be crawled based on settings"""
-        parsed = urlparse(url)
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return False
 
         # Check external domain policy
         if not self.config['crawl_external']:
