@@ -597,7 +597,8 @@ class WebCrawler:
             'memory': self.memory_monitor.get_stats(),
             'memory_data': data_sizes,
             'demo_stopped': self._demo_limit_reached,
-            'demo_mode': self.config.get('demo_mode', False)
+            'demo_mode': self.config.get('demo_mode', False),
+            'crawl_strategy': self.strategy.get_stats() if hasattr(self, 'strategy') else {'mode': 'FAST', 'strategy': 'smart', 'stealth_retries': 0, 'fast_successes': 0, 'consecutive_blocks': 0, 'concurrency': self.config.get('js_max_concurrent_pages', 3), 'total_pages': 0},
         }
 
     def _save_batch_to_db(self, force=False):

@@ -58,6 +58,7 @@ let defaultSettings = {
 
     // Stealth browser settings
     stealthMode: false,
+    crawlStrategy: 'smart',
 
     // Custom CSS styling
     customCSS: '',
@@ -289,40 +290,19 @@ function setupSettingsEventHandlers() {
         });
     }
 
-    // Stealth mode checkbox handler — auto-adjust settings for CamoFox
-    const stealthModeCheckbox = document.getElementById('stealthMode');
-    if (stealthModeCheckbox) {
-        stealthModeCheckbox.addEventListener('change', function() {
-            const notice = document.getElementById('stealthAutoNotice');
-            if (this.checked) {
-                // Save original values so we can restore on uncheck
-                stealthModeCheckbox._prevConcurrency = document.getElementById('concurrency').value;
-                stealthModeCheckbox._prevMemoryLimit = document.getElementById('memoryLimit').value;
-                stealthModeCheckbox._prevJsTimeout = document.getElementById('jsTimeout').value;
-                stealthModeCheckbox._prevJsWaitTime = document.getElementById('jsWaitTime').value;
-                stealthModeCheckbox._prevJsMaxConcurrent = document.getElementById('jsMaxConcurrentPages').value;
-
-                // Auto-adjust for CamoFox + proxy
-                document.getElementById('concurrency').value = 3;
-                document.getElementById('memoryLimit').value = 1024;
+    // Crawl strategy radio handler
+    const strategyRadios = document.querySelectorAll('input[name="crawlStrategy"]');
+    strategyRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.value === 'force_stealth') {
+                document.getElementById('jsMaxConcurrentPages').value = 1;
                 document.getElementById('jsTimeout').value = 60;
-                document.getElementById('jsWaitTime').value = 1;
-                document.getElementById('jsMaxConcurrentPages').value = 2;
-
-                if (notice) notice.style.display = 'block';
             } else {
-                // Restore previous values
-                if (stealthModeCheckbox._prevConcurrency) {
-                    document.getElementById('concurrency').value = stealthModeCheckbox._prevConcurrency;
-                    document.getElementById('memoryLimit').value = stealthModeCheckbox._prevMemoryLimit;
-                    document.getElementById('jsTimeout').value = stealthModeCheckbox._prevJsTimeout;
-                    document.getElementById('jsWaitTime').value = stealthModeCheckbox._prevJsWaitTime;
-                    document.getElementById('jsMaxConcurrentPages').value = stealthModeCheckbox._prevJsMaxConcurrent;
-                }
-                if (notice) notice.style.display = 'none';
+                document.getElementById('jsMaxConcurrentPages').value = 3;
+                document.getElementById('jsTimeout').value = 30;
             }
         });
-    }
+    });
 
     // JavaScript checkbox handler
     const enableJavaScriptCheckbox = document.getElementById('enableJavaScript');
@@ -490,6 +470,18 @@ function populateSettingsForm() {
             group.style.display = enableJavaScript ? 'block' : 'none';
         }
     });
+
+    // Set crawl strategy radio
+    const strategy = currentSettings.crawlStrategy || 'smart';
+    const strategyRadio = document.getElementById('crawlStrategy-' + strategy);
+    if (strategyRadio) strategyRadio.checked = true;
+
+    // Show proxy status in strategy tab
+    const proxyStatus = document.getElementById('strategyProxyStatus');
+    if (proxyStatus) {
+        proxyStatus.textContent = currentSettings.proxyUrl ? 'Configured' : 'Not configured — stealth fallback disabled';
+        proxyStatus.style.color = currentSettings.proxyUrl ? '#10b981' : '#f59e0b';
+    }
 }
 
 function collectSettingsFromForm() {
@@ -504,7 +496,6 @@ function collectSettingsFromForm() {
         'exportFormat', 'concurrency', 'memoryLimit', 'logLevel', 'saveSession',
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
-        'stealthMode',
         'customCSS', 'issueExclusionPatterns',
         'extractClaims'
     ];
@@ -521,6 +512,10 @@ function collectSettingsFromForm() {
             }
         }
     });
+
+    // Collect crawl strategy
+    const selectedStrategy = document.querySelector('input[name="crawlStrategy"]:checked');
+    settings.crawlStrategy = selectedStrategy ? selectedStrategy.value : 'smart';
 
     // Collect export fields
     const exportFieldsCheckboxes = document.querySelectorAll('input[name="exportFields"]:checked');

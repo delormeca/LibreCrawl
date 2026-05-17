@@ -82,6 +82,11 @@
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
                 <span class="progress-text" id="progressText">Initializing...</span>
+                <span id="crawlModeIndicator" style="display: none; margin-left: 12px; font-size: 13px; vertical-align: middle;">
+                    <span id="crawlModeDot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle;"></span>
+                    <span id="crawlModeLabel" style="font-weight: 500;">SMART</span>
+                    <span id="crawlModeConcurrency" style="color: #9ca3af; margin-left: 6px; font-size: 12px;"></span>
+                </span>
             </div>
         </section>
 
@@ -1037,17 +1042,29 @@
 
                 <!-- Stealth Browser Settings -->
                 <div id="stealth-settings" class="settings-tab-content">
-                    <h3>Stealth Browser (CamoFox)</h3>
+                    <h3>Crawl Strategy</h3>
 
                     <div class="setting-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="stealthMode">
-                            Enable Stealth Mode
-                        </label>
-                        <span class="setting-help">Use CamoFox (anti-detection Firefox) for all page rendering. When off, CamoFox is still used as fallback for blocked pages (403/503).</span>
+                        <label><strong>Crawl Strategy</strong></label>
+                        <span class="setting-help">How LibreCrawl handles sites that block crawlers</span>
+                        <div style="margin-top: 10px;">
+                            <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="crawlStrategy" id="crawlStrategy-smart" value="smart">
+                                <strong>Smart</strong> (recommended) — Fast concurrent crawling, auto-fallback to stealth if blocked
+                            </label>
+                            <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="crawlStrategy" id="crawlStrategy-force_stealth" value="force_stealth">
+                                <strong>Force Stealth</strong> — Always use stealth browser + proxy. Slower but guaranteed anti-detection.
+                            </label>
+                            <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+                                <input type="radio" name="crawlStrategy" id="crawlStrategy-force_fast" value="force_fast">
+                                <strong>Force Fast</strong> — Chromium only, no proxy. Fastest but may get blocked.
+                            </label>
+                        </div>
                     </div>
-                    <div id="stealthAutoNotice" class="setting-group" style="display: none; padding: 10px; border-left: 3px solid #f59e0b; background: rgba(245,158,11,0.1); margin-top: 10px;">
-                        <strong>Auto-adjusted for stealth:</strong> Concurrent pages &rarr; 2, JS Wait &rarr; 1s, JS Timeout &rarr; 60s, Memory &rarr; 1024 MB. Optimized for CamoFox through a proxy. You can override these in Advanced/JavaScript tabs.
+                    <div id="strategyProxyNotice" class="setting-group" style="padding: 10px; border-left: 3px solid #6a7a40; background: rgba(106,122,64,0.1); margin-top: 10px;">
+                        <strong>Proxy:</strong> <span id="strategyProxyStatus">Not configured</span><br>
+                        <span class="setting-help">Set in Advanced tab. Used automatically when stealth is needed.</span>
                     </div>
                 </div>
 

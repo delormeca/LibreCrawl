@@ -494,6 +494,18 @@ function pollCrawlProgress() {
                 }
             }
 
+            // Update crawl mode indicator
+            var indicator = document.getElementById('crawlModeIndicator');
+            if (indicator && data.crawl_strategy) {
+                indicator.style.display = (data.status === 'running') ? 'inline' : 'none';
+                var mode = data.crawl_strategy.mode;
+                document.getElementById('crawlModeLabel').textContent = mode;
+                var concLabel = mode === 'STEALTH' ? 'Sequential + proxy' : data.crawl_strategy.concurrency + ' concurrent';
+                document.getElementById('crawlModeConcurrency').textContent = concLabel;
+                var colors = { 'SMART': '#3b82f6', 'FAST': '#10b981', 'STEALTH': '#f59e0b' };
+                document.getElementById('crawlModeDot').style.backgroundColor = colors[mode] || '#6b7280';
+            }
+
             // Update visualization if visualization tab is active
             const vizTab = document.getElementById('visualization-tab');
             if (vizTab && vizTab.classList.contains('active') && typeof loadVisualizationData === 'function') {
