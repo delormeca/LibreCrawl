@@ -696,7 +696,15 @@
                             <input type="checkbox" id="extractClaims" checked>
                             Extract Claims
                         </label>
-                        <span class="setting-help">After crawl completes, extract factual claims from page content using AI. Requires an OpenAI API key.</span>
+                        <span class="setting-help">After crawl completes, extract factual claims from page content using AI.</span>
+                        <div style="margin-top:10px;">
+                            <label style="font-size:13px; color:#9ca3af;">OpenAI API Key</label>
+                            <div style="display:flex; gap:8px; margin-top:4px;">
+                                <input type="password" id="settingsOpenaiKey" placeholder="sk-..." style="flex:1; padding:6px 10px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); border-radius:6px; color:#e5e7eb; font-size:13px; font-family:monospace;">
+                                <button onclick="saveSettingsOpenAIKey()" style="padding:6px 14px; border:none; border-radius:6px; background:#5a6a30; color:#fff; cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap;">Save Key</button>
+                            </div>
+                            <div id="settingsKeyStatus" style="margin-top:6px; font-size:12px;"></div>
+                        </div>
                     </div>
 
                     <div class="setting-group">

@@ -67,7 +67,10 @@ class LinkManager:
             absolute_url = urljoin(current_url, href)
 
             # Clean URL (remove fragment)
-            parsed = urlparse(absolute_url)
+            try:
+                parsed = urlparse(absolute_url)
+            except ValueError:
+                continue
             clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
             if parsed.query:
                 clean_url += f"?{parsed.query}"

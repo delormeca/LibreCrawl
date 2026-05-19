@@ -589,7 +589,7 @@ class WebCrawler:
                 'discovered': link_stats['discovered'],
                 'sitemap_url_count': self.sitemap_url_count
             },
-            'urls': self.crawl_results.copy(),
+            'urls': list({r.get('url', ''): r for r in self.crawl_results}.values()),
             'links': self.link_manager.all_links.copy() if self.link_manager else [],
             'issues': self.issue_detector.get_issues() if self.issue_detector else [],
             'progress': min(100, (self.stats['crawled'] / max(link_stats['discovered'], 1)) * 100),
@@ -1353,10 +1353,21 @@ class WebCrawler:
                                             self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                                             await self.camoufox_renderer.start()
                                         max_workers = 1
-                                        # Retry the blocked page with stealth (strategy now in stealth mode)
-                                        stealth_result = await self._crawl_url_with_javascript(blocked_url, blocked_depth)
-                                        if stealth_result and not self._is_blocked(stealth_result):
-                                            result = stealth_result
+                                        # Retry with stealth using direct render (avoid double-add from _crawl_url_with_javascript)
+                                        try:
+                                            html_content, status_code = await self.camoufox_renderer.render_page(
+                                                blocked_url,
+                                                wait_time=self.config.get('js_wait_time', 3),
+                                                timeout=self.config.get('js_timeout', 30))
+                                            result['status_code'] = status_code
+                                            result['size'] = len(html_content.encode('utf-8'))
+                                            result['javascript_rendered'] = True
+                                            from bs4 import BeautifulSoup
+                                            soup = BeautifulSoup(html_content, 'html.parser')
+                                            self.seo_extractor.extract_basic_seo_data(soup, result)
+                                            self.seo_extractor.extract_body_text(html_content, result)
+                                        except Exception as e:
+                                            print(f"Smart mode: escalation retry failed for {blocked_url}: {e}")
 
                                     elif action == 'skip':
                                         print(f"Smart mode: {blocked_url} blocked, no proxy configured — skipping")
@@ -1459,10 +1470,11 @@ class WebCrawler:
 
     def _is_blocked(self, result):
         """Detect if a page response indicates blocking."""
-        if result.get('status_code') in (403, 503):
+        status = result.get('status_code', 0)
+        if status in (0, 403, 503):
             return True
         body = result.get('body_text', '')
-        if result.get('status_code') == 200 and len(body) < 100:
+        if status == 200 and len(body) < 100:
             if any(sig in body.lower() for sig in ['checking your browser', 'cf-browser-verification', 'access denied']):
                 return True
         return False

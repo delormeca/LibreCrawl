@@ -177,12 +177,30 @@ def extract_claims(crawl_id, pages, api_key, on_progress=None, model='gpt-4o-min
     """
     from src.crawl_db import save_claims_batch, delete_claims, update_claims_stats
 
+    # Resume: skip pages that already have claims
+    try:
+        from src.crawl_db import get_db_connection
+        conn = get_db_connection()
+        already_done = set(
+            row[0] for row in conn.execute(
+                'SELECT DISTINCT url FROM page_claims WHERE crawl_id = ?', (crawl_id,)
+            ).fetchall()
+        )
+        conn.close()
+        if already_done:
+            logger.info(f"Resuming claims: skipping {len(already_done)} already-extracted pages")
+            pages = [p for p in pages if p['url'] not in already_done]
+    except Exception:
+        already_done = set()
+
     total = len(pages)
     processed = 0
-    total_claims = 0
+    total_claims = len(already_done)
     failed = 0
 
-    delete_claims(crawl_id)
+    if total == 0:
+        return {'status': 'completed', 'total_pages': len(already_done), 'processed': len(already_done),
+                'total_claims': total_claims, 'failed': 0, 'model': model}
 
     update_claims_stats(crawl_id, {
         'status': 'running',

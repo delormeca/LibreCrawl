@@ -1536,11 +1536,11 @@ function switchTab(tabName) {
         // Load content data if switching to Content tab
         if (tabName === 'content') {
             if (!claimsLoaded) {
-                loadClaimsData().then(() => updateContentTable());
+                loadClaimsData().then(() => { updateContentTable(); showClaimsExtractionBanner(); });
             } else {
                 updateContentTable();
+                showClaimsExtractionBanner();
             }
-            showClaimsExtractionBanner();
         }
 
         // Force virtual scroller viewport update for newly visible tabs
@@ -3149,6 +3149,45 @@ function checkOpenAIKey() {
         });
 }
 
+function saveSettingsOpenAIKey() {
+    const key = document.getElementById('settingsOpenaiKey').value.trim();
+    const status = document.getElementById('settingsKeyStatus');
+    if (!key) { status.textContent = 'Please enter a key'; status.style.color = '#f59e0b'; return; }
+    status.textContent = 'Saving...'; status.style.color = '#9ca3af';
+    fetch('/api/set_openai_key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('settingsOpenaiKey').value = '';
+            document.getElementById('settingsOpenaiKey').placeholder = 'sk-...saved';
+            status.textContent = 'API key saved ✓';
+            status.style.color = '#10b981';
+        } else {
+            status.textContent = 'Failed to save: ' + (data.error || 'unknown');
+            status.style.color = '#ef4444';
+        }
+    })
+    .catch(() => { status.textContent = 'Network error'; status.style.color = '#ef4444'; });
+}
+
+// Check if key already exists on settings load
+function checkSettingsOpenAIKey() {
+    var status = document.getElementById('settingsKeyStatus');
+    if (!status) return;
+    fetch('/api/check_openai_key').then(r => r.json()).then(data => {
+        if (data.has_key || data.valid) {
+            status.textContent = 'API key set ✓';
+            status.style.color = '#10b981';
+            document.getElementById('settingsOpenaiKey').placeholder = 'sk-...saved (paste new to replace)';
+        }
+    }).catch(() => {});
+}
+document.addEventListener('DOMContentLoaded', checkSettingsOpenAIKey);
+
 function saveOpenAIKey() {
     const key = document.getElementById('openaiApiKey').value.trim();
     fetch('/api/set_openai_key', {
@@ -3219,26 +3258,30 @@ function toggleClaimsPanel(row, url, claims) {
 function showClaimsExtractionBanner() {
     if (!currentSettings.extractClaims) return;
 
+    // Don't add a second banner if one is already showing progress
+    var existing = document.getElementById('claims-banner');
+    if (existing && existing.dataset.status === 'running') return;
+
     fetch('/api/claims_status')
         .then(r => r.json())
         .then(data => {
-            if (data.status === 'completed') {
+            if (data.status === 'completed' && data.total_claims > 0) {
                 showClaimsCompletedBanner(data.total_claims);
             } else if (data.status === 'running') {
                 showClaimsProgressBar();
                 pollClaimsProgress();
             } else {
-                // Check if API key is set — if so, go straight to cost popup
-                fetch('/api/check_openai_key')
-                    .then(r => r.json())
-                    .then(keyData => {
-                        if (keyData.valid) {
-                            showClaimsCostPopup();
-                        } else {
-                            showClaimsPromptBanner();
-                        }
-                    })
-                    .catch(() => showClaimsPromptBanner());
+                // Status is idle — check if claims already exist in loaded data
+                if (claimsData && Object.keys(claimsData).length > 0) {
+                    var count = 0;
+                    for (var k in claimsData) count += claimsData[k].length;
+                    if (count > 0) {
+                        showClaimsCompletedBanner(count);
+                        return;
+                    }
+                }
+                // No existing claims — show prompt
+                showClaimsPromptBanner();
             }
         })
         .catch(() => {});
@@ -3250,9 +3293,9 @@ function showClaimsPromptBanner() {
 
     const banner = document.createElement('div');
     banner.id = 'claims-banner';
-    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#333;';
+    banner.style.cssText = 'background:rgba(106,122,64,0.15);border:1px solid rgba(106,122,64,0.4);border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#e5e7eb;';
     banner.innerHTML = '<span>No claims extracted for this crawl.</span>' +
-        '<button onclick="showClaimsCostPopup()" style="background:#2e7d32;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Extract Claims</button>';
+        '<button onclick="showClaimsCostPopup()" style="background:#5a6a30;color:white;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Extract Claims</button>';
     const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
     if (contentArea) contentArea.prepend(banner);
 }
@@ -3263,11 +3306,11 @@ function showClaimsCompletedBanner(totalClaims) {
 
     const banner = document.createElement('div');
     banner.id = 'claims-banner';
-    banner.style.cssText = 'background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#333;';
+    banner.style.cssText = 'background:rgba(106,122,64,0.15);border:1px solid rgba(106,122,64,0.4);border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;color:#e5e7eb;';
     banner.innerHTML = '<span><strong>' + totalClaims + ' claims extracted</strong></span>' +
         '<div>' +
-        '<button onclick="showClaimsCostPopup()" style="background:transparent;color:#2e7d32;border:1px solid #2e7d32;padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:8px;">Re-extract</button>' +
-        '<button onclick="exportClaims()" style="background:#2e7d32;color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">Export Claims</button>' +
+        '<button onclick="showClaimsCostPopup()" style="background:transparent;color:#c8d9a0;border:1px solid rgba(106,122,64,0.6);padding:6px 12px;border-radius:4px;cursor:pointer;margin-right:8px;">Re-extract</button>' +
+        '<button onclick="exportClaims()" style="background:#5a6a30;color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">Export Claims</button>' +
         '</div>';
     const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
     if (contentArea) contentArea.prepend(banner);
@@ -3386,18 +3429,22 @@ async function startClaimsExtraction() {
 }
 
 function showClaimsProgressBar() {
+    // Don't create duplicate progress bars
+    if (document.getElementById('claims-progress')) return;
+
     const existing = document.getElementById('claims-banner');
     if (existing) existing.remove();
 
     const bar = document.createElement('div');
     bar.id = 'claims-progress';
-    bar.style.cssText = 'background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:12px 16px;margin:10px 0;color:#333;';
+    bar.dataset.status = 'running';
+    bar.style.cssText = 'background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:8px;padding:12px 16px;margin:10px 0;color:#e5e7eb;';
     bar.innerHTML = '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">' +
         '<span>Extracting claims...</span>' +
         '<span id="claims-progress-text">0 / 0 pages</span>' +
         '</div>' +
-        '<div style="background:#e0e0e0;border-radius:4px;height:8px;overflow:hidden;">' +
-        '<div id="claims-progress-bar" style="background:#1976d2;height:100%;width:0%;transition:width 0.3s;"></div>' +
+        '<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:8px;overflow:hidden;">' +
+        '<div id="claims-progress-bar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.3s;"></div>' +
         '</div>';
     const contentArea = document.querySelector('#content-tab') || document.querySelector('.tab-content') || document.querySelector('#main-content');
     if (contentArea) contentArea.prepend(bar);

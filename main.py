@@ -59,6 +59,20 @@ claims_progress = {'processed': 0, 'total': 0, 'total_claims': 0, 'failed': 0, '
 # User-provided OpenAI API key (overrides env var when set)
 user_openai_key = None
 
+# Load persisted OpenAI key from DB on startup
+try:
+    import sqlite3 as _sq, json as _js
+    _conn = _sq.connect('data/users.db')
+    _row = _conn.execute('SELECT settings_json FROM user_settings WHERE user_id=1').fetchone()
+    if _row:
+        _s = _js.loads(_row[0])
+        if _s.get('openaiApiKey'):
+            user_openai_key = _s['openaiApiKey']
+            print(f"Loaded OpenAI API key from DB")
+    _conn.close()
+except Exception:
+    pass
+
 def generate_random_password(length=16):
     """Generate a random password with letters, digits, and symbols"""
     alphabet = string.ascii_letters + string.digits + string.punctuation
@@ -959,6 +973,20 @@ def set_openai_key():
     key = data.get('key', '').strip()
     if key:
         user_openai_key = key
+        # Persist to user settings DB so it survives restarts
+        try:
+            import sqlite3, json
+            conn = sqlite3.connect('data/users.db')
+            row = conn.execute('SELECT settings_json FROM user_settings WHERE user_id=?', (session.get('user_id', 1),)).fetchone()
+            if row:
+                settings = json.loads(row[0])
+                settings['openaiApiKey'] = key
+                conn.execute('UPDATE user_settings SET settings_json=?, updated_at=datetime("now") WHERE user_id=?',
+                             (json.dumps(settings), session.get('user_id', 1)))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Warning: could not persist OpenAI key: {e}")
         return jsonify({'success': True})
     else:
         user_openai_key = None
@@ -1869,7 +1897,7 @@ def export_data():
                 'success': True,
                 'content': content,
                 'mimetype': 'application/json',
-                'filename': f'librecrawl_linkgraph_{crawl_id}_{int(time.time())}.json'
+                'filename': f'{data.get("baseUrl", "export").replace("https://","").replace("http://","").replace("www.","").rstrip("/")}_{datetime.now().strftime("%Y-%m-%d")}_linkgraph.json'
             })
 
         # Use local data if provided (from loaded crawl), otherwise get from crawler
@@ -1885,8 +1913,25 @@ def export_data():
             links = crawl_data.get('links', [])
             issues = crawl_data.get('issues', [])
 
+        # Deduplicate URLs by URL field (keep last occurrence — stealth retry has better data)
+        seen = {}
+        for u in urls:
+            seen[u.get('url', '')] = u
+        urls = list(seen.values())
+
         if not urls:
             return jsonify({'success': False, 'error': 'No data to export'})
+
+        # Build clean filename prefix: domain_YYYY-MM-DD
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _first_url = urls[0].get('url', '') if urls else ''
+            _domain = _urlparse(_first_url).hostname or 'export'
+            _domain = _domain.replace('www.', '')
+        except Exception:
+            _domain = 'export'
+        _date = datetime.now().strftime('%Y-%m-%d')
+        _prefix = f'{_domain}_{_date}'
 
         # Update link statuses from crawled URLs (fixes missing status codes in exports)
         if links and urls:
@@ -1929,15 +1974,15 @@ def export_data():
             if export_format == 'csv':
                 issues_content = generate_issues_csv_export(issues)
                 issues_mimetype = 'text/csv'
-                issues_filename = f'librecrawl_issues_{int(time.time())}.csv'
+                issues_filename = f'{_prefix}_issues.csv'
             elif export_format == 'json':
                 issues_content = generate_issues_json_export(issues)
                 issues_mimetype = 'application/json'
-                issues_filename = f'librecrawl_issues_{int(time.time())}.json'
+                issues_filename = f'{_prefix}_issues.json'
             else:
                 issues_content = generate_issues_csv_export(issues)
                 issues_mimetype = 'text/csv'
-                issues_filename = f'librecrawl_issues_{int(time.time())}.csv'
+                issues_filename = f'{_prefix}_issues.csv'
 
             files_to_export.append({
                 'content': issues_content,
@@ -1950,15 +1995,15 @@ def export_data():
             if export_format == 'csv':
                 links_content = generate_links_csv_export(links)
                 links_mimetype = 'text/csv'
-                links_filename = f'librecrawl_links_{int(time.time())}.csv'
+                links_filename = f'{_prefix}_links.csv'
             elif export_format == 'json':
                 links_content = generate_links_json_export(links)
                 links_mimetype = 'application/json'
-                links_filename = f'librecrawl_links_{int(time.time())}.json'
+                links_filename = f'{_prefix}_links.json'
             else:
                 links_content = generate_links_csv_export(links)
                 links_mimetype = 'text/csv'
-                links_filename = f'librecrawl_links_{int(time.time())}.csv'
+                links_filename = f'{_prefix}_links.csv'
 
             files_to_export.append({
                 'content': links_content,
@@ -1971,15 +2016,15 @@ def export_data():
             if export_format == 'csv':
                 regular_content = generate_csv_export(urls, regular_fields)
                 regular_mimetype = 'text/csv'
-                regular_filename = f'librecrawl_export_{int(time.time())}.csv'
+                regular_filename = f'{_prefix}_crawl.csv'
             elif export_format == 'json':
                 regular_content = generate_json_export(urls, regular_fields)
                 regular_mimetype = 'application/json'
-                regular_filename = f'librecrawl_export_{int(time.time())}.json'
+                regular_filename = f'{_prefix}_crawl.json'
             elif export_format == 'xml':
                 regular_content = generate_xml_export(urls, regular_fields)
                 regular_mimetype = 'application/xml'
-                regular_filename = f'librecrawl_export_{int(time.time())}.xml'
+                regular_filename = f'{_prefix}_crawl.xml'
             else:
                 return jsonify({'success': False, 'error': 'Unsupported export format'})
 
@@ -2056,6 +2101,15 @@ def export_all():
         if not urls:
             return jsonify({'success': False, 'error': 'No data to export'})
 
+        # Build clean filename prefix for zip contents
+        try:
+            from urllib.parse import urlparse as _up2
+            _d2 = _up2(urls[0].get('url', '')).hostname or 'export'
+            _d2 = _d2.replace('www.', '')
+        except Exception:
+            _d2 = 'export'
+        _zp = f'{_d2}_{datetime.now().strftime("%Y-%m-%d")}'
+
         # Apply issue exclusion patterns
         if issues and inc_issues:
             settings_manager = get_session_settings()
@@ -2092,7 +2146,7 @@ def export_all():
                     'total_urls': len(urls_export),
                     'data': urls_export
                 }, indent=2, default=str)
-                zf.writestr(f'librecrawl_urls_{ts_file}.json', urls_json)
+                zf.writestr(f'{_zp}_urls.json', urls_json)
 
             # 2. Body text (separate lightweight file: url + body_text only)
             if inc_body_text:
@@ -2113,12 +2167,12 @@ def export_all():
                         'total_pages': len(content_data),
                         'data': content_data
                     }, indent=2, default=str)
-                    zf.writestr(f'librecrawl_content_{ts_file}.json', content_json)
+                    zf.writestr(f'{_zp}_content.json', content_json)
 
             # 3. Links
             if inc_links and links:
                 links_json = generate_links_json_export(links)
-                zf.writestr(f'librecrawl_links_{ts_file}.json', links_json)
+                zf.writestr(f'{_zp}_links.json', links_json)
 
                 # 3b. Reverse link index (grouped by target URL, internal only)
                 reverse_index = {}
@@ -2138,13 +2192,13 @@ def export_all():
                      for t, srcs in reverse_index.items()],
                     key=lambda x: x['count'], reverse=True
                 )
-                zf.writestr(f'librecrawl_link_report_{ts_file}.json',
+                zf.writestr(f'{_zp}_link_report.json',
                             json.dumps(link_report, indent=2, default=str))
 
             # 4. Issues
             if inc_issues and issues:
                 issues_json = generate_issues_json_export(issues)
-                zf.writestr(f'librecrawl_issues_{ts_file}.json', issues_json)
+                zf.writestr(f'{_zp}_issues.json', issues_json)
 
             # 5. Images (flat list, one row per image)
             if inc_images:
@@ -2168,7 +2222,7 @@ def export_all():
                         'total_images': len(all_images),
                         'data': all_images
                     }, indent=2, default=str)
-                    zf.writestr(f'librecrawl_images_{ts_file}.json', images_json)
+                    zf.writestr(f'{_zp}_images.json', images_json)
 
             # 6. Embeddings
             if inc_embeddings:
@@ -2195,7 +2249,7 @@ def export_all():
                             'dimensions': 3072,
                             'data': embed_data
                         }, indent=2)
-                        zf.writestr(f'librecrawl_embeddings_{ts_file}.json', embed_json)
+                        zf.writestr(f'{_zp}_embeddings.json', embed_json)
 
             # 7. LinkGraph JSON (self-contained internal linking analysis file)
             if inc_linkgraph:
@@ -2203,7 +2257,7 @@ def export_all():
                 if crawl_id:
                     linkgraph_content = generate_linkgraph_json_export(crawl_id)
                     if linkgraph_content:
-                        zf.writestr(f'librecrawl_linkgraph_{ts_file}.json', linkgraph_content)
+                        zf.writestr(f'{_zp}_linkgraph.json', linkgraph_content)
 
             # 8. Claims
             if options.get('claims', True):
@@ -2212,17 +2266,17 @@ def export_all():
                     from src.crawl_db import count_claims
                     if count_claims(crawl_id) > 0:
                         claims_json = generate_claims_json_export(crawl_id, urls)
-                        zf.writestr(f'librecrawl_claims_{ts_file}.json', claims_json)
+                        zf.writestr(f'{_zp}_claims.json', claims_json)
 
                         claims_csv = generate_claims_csv_export(crawl_id, urls)
-                        zf.writestr(f'librecrawl_claims_{ts_file}.csv', claims_csv)
+                        zf.writestr(f'{_zp}_claims.csv', claims_csv)
 
         buf.seek(0)
         return send_file(
             buf,
             mimetype='application/zip',
             as_attachment=True,
-            download_name=f'librecrawl_export_all_{ts_file}.zip'
+            download_name=f'{_zp}_export_all.zip'
         )
 
     except Exception as e:

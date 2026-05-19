@@ -357,9 +357,9 @@ class SettingsManager:
                     settings = {**self.default_settings}
                     settings.update(saved_settings)
 
-                    # Migrate stealthMode -> crawlStrategy
-                    if settings.get('stealthMode') and 'crawlStrategy' not in saved_settings:
-                        settings['crawlStrategy'] = 'force_stealth'
+                    # Migrate stealthMode -> crawlStrategy (smart handles stealth automatically)
+                    if 'crawlStrategy' not in saved_settings:
+                        settings['crawlStrategy'] = 'smart'
 
                     return settings
 
@@ -526,9 +526,9 @@ class SettingsManager:
             'issue_exclusion_patterns': [p.strip() for p in settings['issueExclusionPatterns'].split('\n') if p.strip()],
             'enable_duplication_check': settings['enableDuplicationCheck'],
             'duplication_threshold': settings['duplicationThreshold'],
-            'crawl_strategy': settings.get('crawlStrategy', 'smart'),
-            # Backward compat: stealth_mode still works for non-JS path
-            'stealth_mode': settings.get('crawlStrategy', 'smart') == 'force_stealth' or settings.get('stealthMode', False),
+            'crawl_strategy': settings.get('crawlStrategy') or 'smart',
+            # Backward compat: stealth_mode driven purely by crawl_strategy now
+            'stealth_mode': (settings.get('crawlStrategy') or 'smart') == 'force_stealth',
         }
 
     def _parse_custom_headers(self, headers_text):

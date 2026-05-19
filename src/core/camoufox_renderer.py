@@ -134,7 +134,7 @@ class CamoFoxRenderer:
             page = await browser.new_page()
             try:
                 await page.route('**/*', CamoFoxRenderer._block_heavy_resources)
-                response = await page.goto(url, timeout=timeout * 1000)
+                response = await page.goto(url, wait_until='domcontentloaded', timeout=timeout * 1000)
                 await page.wait_for_timeout(wait_time * 1000)
                 await CamoFoxRenderer._dismiss_cookie_banner(page)
                 content = await page.content()
