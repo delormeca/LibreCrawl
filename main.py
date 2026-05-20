@@ -40,6 +40,7 @@ LOCAL_MODE = args.local
 DISABLE_REGISTER = args.disable_register
 DISABLE_GUEST = args.disable_guest or os.getenv('DISABLE_GUEST', '').lower() in ('true', '1', 'yes')
 DEMO_MODE = args.demo or os.getenv('DEMO_MODE', '').lower() in ('true', '1', 'yes')
+BRIDGE_API_URL = os.environ.get('BRIDGE_API_URL', 'http://pipeline-bridge-1:3000')
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = 'librecrawl-secret-key-change-in-production'  # TODO: Use environment variable in production
@@ -2281,6 +2282,147 @@ def export_all():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ── Notion push proxy endpoints ──────────────────────────────────────────────
+
+@app.route('/api/notion_config', methods=['GET'])
+@login_required
+def notion_config():
+    """Look up Notion config for the current crawl domain."""
+    import requests as http_requests
+    from urllib.parse import urlparse
+
+    crawler = get_or_create_crawler()
+    domain = ''
+
+    if hasattr(crawler, 'base_url') and crawler.base_url:
+        try:
+            domain = urlparse(crawler.base_url).netloc
+        except Exception:
+            domain = crawler.base_url
+
+    if not domain:
+        try:
+            status = crawler.get_status()
+            urls = status.get('urls', [])
+            if urls and urls[0].get('url'):
+                domain = urlparse(urls[0]['url']).netloc
+        except Exception:
+            pass
+
+    if not domain:
+        return jsonify({'found': False})
+
+    if domain.startswith('www.'):
+        domain = domain[4:]
+
+    try:
+        resp = http_requests.get(f'{BRIDGE_API_URL}/api/crawl-notion/lookup-domain',
+                                 params={'domain': domain}, timeout=10)
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({'found': False, 'error': str(e)})
+
+
+@app.route('/api/push_notion', methods=['POST'])
+@login_required
+def push_notion():
+    """Collect crawl data and push to Notion via bridge."""
+    import requests as http_requests
+    from urllib.parse import urlparse
+    from collections import defaultdict
+
+    data = request.get_json() or {}
+    notion_db_url = data.get('notionDbUrl', '')
+    include_claims = data.get('includeClaims', True)
+    include_enrichment = data.get('includeEnrichment', True)
+
+    crawler = get_or_create_crawler()
+
+    # Get crawl data (single call)
+    try:
+        status = crawler.get_status()
+        urls = status.get('urls', [])
+        links = status.get('links', [])
+    except Exception:
+        urls = []
+        links = []
+
+    if not urls:
+        return jsonify({'error': 'No crawl data available'}), 400
+
+    # Extract domain
+    domain = ''
+    if hasattr(crawler, 'base_url') and crawler.base_url:
+        try:
+            domain = urlparse(crawler.base_url).netloc
+        except Exception:
+            domain = crawler.base_url
+    if not domain and urls:
+        try:
+            domain = urlparse(urls[0].get('url', '')).netloc
+        except Exception:
+            pass
+    if domain.startswith('www.'):
+        domain = domain[4:]
+
+    # Wrap URLs in the shape pushToNotion expects
+    urls_wrapped = {
+        'export_date': datetime.now().isoformat(),
+        'total_urls': len(urls),
+        'data': urls
+    }
+
+    # Reshape claims: load from crawl_db, group by URL
+    # LibreCrawl stores claims in SQLite via crawl_db.load_claims(crawl_id)
+    # Bridge expects: { pages: [{ url, claims: [...] }] }
+    claims_payload = None
+    if include_claims:
+        try:
+            crawl_id = session.get('current_crawl_id')
+            if crawl_id:
+                from src.crawl_db import load_claims
+                raw_claims = load_claims(crawl_id)
+                if raw_claims:
+                    grouped = defaultdict(list)
+                    for c in raw_claims:
+                        grouped[c.get('url', '')].append(c)
+                    claims_payload = {
+                        'pages': [{'url': u, 'claims': cl} for u, cl in grouped.items()]
+                    }
+        except Exception:
+            pass
+
+    payload = {
+        'domain': domain,
+        'notionDbUrl': notion_db_url,
+        'includeEnrichment': include_enrichment,
+        'includeClaims': include_claims,
+        'urls': urls_wrapped,
+        'claims': claims_payload,
+        'links': links,
+        'linkReport': []
+    }
+
+    try:
+        resp = http_requests.post(f'{BRIDGE_API_URL}/api/crawl-notion/push-raw',
+                                  json=payload, timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
+
+
+@app.route('/api/push_notion/status/<job_id>', methods=['GET'])
+@login_required
+def push_notion_status(job_id):
+    """Proxy push status from bridge."""
+    import requests as http_requests
+    try:
+        resp = http_requests.get(f'{BRIDGE_API_URL}/api/crawl-notion/push/status/{job_id}', timeout=10)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
 
 
 def recover_crashed_crawls():
