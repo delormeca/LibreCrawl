@@ -40,7 +40,8 @@ LOCAL_MODE = args.local
 DISABLE_REGISTER = args.disable_register
 DISABLE_GUEST = args.disable_guest or os.getenv('DISABLE_GUEST', '').lower() in ('true', '1', 'yes')
 DEMO_MODE = args.demo or os.getenv('DEMO_MODE', '').lower() in ('true', '1', 'yes')
-BRIDGE_API_URL = os.environ.get('BRIDGE_API_URL', 'http://pipeline-bridge-1:3000')
+BRIDGE_API_URL = os.environ.get('BRIDGE_API_URL', 'http://pipeline-bridge-1:5180')
+BRIDGE_API_TOKEN = os.environ.get('BRIDGE_API_TOKEN', '')
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
 app.secret_key = 'librecrawl-secret-key-change-in-production'  # TODO: Use environment variable in production
@@ -2319,7 +2320,7 @@ def notion_config():
 
     try:
         resp = http_requests.get(f'{BRIDGE_API_URL}/api/crawl-notion/lookup-domain',
-                                 params={'domain': domain}, timeout=10)
+                                 params={'domain': domain}, headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=10)
         return jsonify(resp.json())
     except Exception as e:
         return jsonify({'found': False, 'error': str(e)})
@@ -2407,7 +2408,7 @@ def push_notion():
 
     try:
         resp = http_requests.post(f'{BRIDGE_API_URL}/api/crawl-notion/push-raw',
-                                  json=payload, timeout=30)
+                                  json=payload, headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=30)
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
@@ -2419,7 +2420,7 @@ def push_notion_status(job_id):
     """Proxy push status from bridge."""
     import requests as http_requests
     try:
-        resp = http_requests.get(f'{BRIDGE_API_URL}/api/crawl-notion/push/status/{job_id}', timeout=10)
+        resp = http_requests.get(f'{BRIDGE_API_URL}/api/crawl-notion/push/status/{job_id}', headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=10)
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
