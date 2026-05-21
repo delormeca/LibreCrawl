@@ -27,6 +27,7 @@
                     <button class="btn btn-secondary" onclick="exportAll()" title="Export crawl data">Export</button>
                     <button class="btn btn-success" id="saveCrawlBtn" onclick="saveCrawl()" disabled>Save Crawl</button>
                     <button class="btn btn-primary" id="loadCrawlBtn" onclick="loadCrawl()">Load Crawl</button>
+                    <button class="btn btn-secondary" id="notionPushBtn" onclick="openNotionModal()" disabled title="Push to Notion">Notion</button>
                     <button class="btn btn-danger" onclick="logout()" style="margin-left: 10px;">Logout</button>
                 </div>
             </div>
@@ -1283,5 +1284,61 @@
         document.getElementById('sidebarOverlay').classList.toggle('mobile-open');
     }
     </script>
+<!-- Notion Push Modal -->
+<div id="notionPushModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+    <div style="background:#1a1f0e; border:1px solid #4a5a20; border-radius:12px; padding:28px 32px; min-width:380px; max-width:460px; box-shadow:0 8px 32px rgba(0,0,0,0.3); color:#e0e0e0;">
+        <h3 style="margin:0 0 6px; font-size:18px; color:#c8d9a0;">Push to Notion</h3>
+
+        <!-- Loading state -->
+        <div id="notion-loading" style="display:none; padding:20px 0; text-align:center;">
+            <div style="color:#9ca3af; font-size:14px;">Checking config...</div>
+        </div>
+
+        <!-- Config form -->
+        <div id="notion-form" style="display:none;">
+            <div id="notion-status-msg" style="margin:12px 0; font-size:14px;"></div>
+
+            <div id="notion-db-url-row" style="display:none; margin:12px 0;">
+                <label style="font-size:13px; color:#9ca3af; display:block; margin-bottom:4px;">Notion DB URL</label>
+                <input type="text" id="notion-db-url" placeholder="Paste URL or leave empty to create new" style="width:100%; padding:8px 12px; border:1px solid #4a5a20; border-radius:6px; background:#252b14; color:#e0e0e0; font-size:14px; box-sizing:border-box;">
+                <div style="font-size:11px; color:#6b7280; margin-top:4px;">Leave empty to auto-create a new database</div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px; margin:16px 0;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="notion-include-claims" style="accent-color:#6a7a40;">
+                    Include claims
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;">
+                    <input type="checkbox" id="notion-include-enrichment" checked style="accent-color:#6a7a40;">
+                    Enrich (entities + keywords)
+                </label>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:18px; justify-content:flex-end;">
+                <button onclick="closeNotionModal()" style="padding:8px 18px; border:1px solid #4a5a20; border-radius:6px; background:transparent; color:#9ca3af; cursor:pointer; font-size:14px;">Cancel</button>
+                <button id="notion-push-btn" onclick="runNotionPush()" style="padding:8px 18px; border:none; border-radius:6px; background:#5a6a30; color:#fff; cursor:pointer; font-size:14px; font-weight:600;">Push to Notion</button>
+            </div>
+        </div>
+
+        <!-- Progress state -->
+        <div id="notion-progress" style="display:none; padding:12px 0;">
+            <div id="notion-phase" style="font-size:14px; color:#9ca3af; margin-bottom:8px;">Starting...</div>
+            <div style="width:100%; height:8px; background:#252b14; border-radius:4px; overflow:hidden;">
+                <div id="notion-progress-bar" style="width:0%; height:100%; background:#6a7a40; border-radius:4px; transition:width 0.3s ease;"></div>
+            </div>
+            <div id="notion-progress-text" style="font-size:12px; color:#6b7280; margin-top:4px;">0 / 0</div>
+        </div>
+
+        <!-- Done state -->
+        <div id="notion-done" style="display:none; padding:12px 0;">
+            <div id="notion-done-msg" style="font-size:14px; margin-bottom:16px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <a id="notion-open-link" href="#" target="_blank" style="display:none; padding:8px 18px; border:1px solid #4a5a20; border-radius:6px; background:transparent; color:#6a7a40; text-decoration:none; font-size:14px;">Open in Notion</a>
+                <button onclick="closeNotionModal()" style="padding:8px 18px; border:1px solid #4a5a20; border-radius:6px; background:transparent; color:#9ca3af; cursor:pointer; font-size:14px;">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>

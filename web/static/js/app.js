@@ -816,6 +816,8 @@ function updateCrawlButtons() {
         clearBtn.disabled = false;
         saveCrawlBtn.disabled = true; // Disable during crawl
         loadCrawlBtn.disabled = true; // Disable during crawl
+        const notionBtn = document.getElementById('notionPushBtn');
+        if (notionBtn) notionBtn.disabled = true;
     } else {
         startBtn.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -830,6 +832,8 @@ function updateCrawlButtons() {
         // Save button: only enabled if crawl is completed and has data
         const hasData = crawlState.stats.crawled > 0;
         saveCrawlBtn.disabled = !hasData;
+        const notionBtn = document.getElementById('notionPushBtn');
+        if (notionBtn) notionBtn.disabled = !hasData;
 
         // Load button: only enabled if no current crawl data
         loadCrawlBtn.disabled = hasData;
@@ -3509,5 +3513,172 @@ function toggleExtractClaims(enabled) {
         localStorage.setItem('librecrawl_settings', JSON.stringify(currentSettings));
     } catch (err) {
         console.warn('Failed to save extractClaims setting:', err);
+    }
+}
+
+// ===== Notion Push =====
+
+let notionPushJobId = null;
+let notionPollInterval = null;
+let notionConfig = null;
+let notionPushDbId = null;
+
+function openNotionModal() {
+    const modal = document.getElementById('notionPushModal');
+    modal.style.display = 'flex';
+
+    document.getElementById('notion-loading').style.display = 'block';
+    document.getElementById('notion-form').style.display = 'none';
+    document.getElementById('notion-progress').style.display = 'none';
+    document.getElementById('notion-done').style.display = 'none';
+
+    fetch('/api/notion_config')
+        .then(r => r.json())
+        .then(data => {
+            notionConfig = data;
+            document.getElementById('notion-loading').style.display = 'none';
+            document.getElementById('notion-form').style.display = 'block';
+
+            const statusMsg = document.getElementById('notion-status-msg');
+            const dbUrlRow = document.getElementById('notion-db-url-row');
+
+            if (data.found) {
+                statusMsg.innerHTML = '<span style="color:#6a7a40;">&#10003;</span> Connected: <strong>' + (data.clientName || data.websiteUrl) + '</strong>';
+                dbUrlRow.style.display = 'none';
+            } else {
+                const domain = crawlState.baseUrl ? new URL(crawlState.baseUrl).hostname : 'this domain';
+                statusMsg.innerHTML = 'No config found for <strong>' + domain + '</strong>';
+                dbUrlRow.style.display = 'block';
+                document.getElementById('notion-db-url').value = '';
+            }
+        })
+        .catch(err => {
+            document.getElementById('notion-loading').style.display = 'none';
+            document.getElementById('notion-form').style.display = 'block';
+            document.getElementById('notion-status-msg').innerHTML = 'Could not reach bridge — enter DB URL manually';
+            document.getElementById('notion-db-url-row').style.display = 'block';
+        });
+}
+
+function closeNotionModal() {
+    document.getElementById('notionPushModal').style.display = 'none';
+    if (notionPollInterval) {
+        clearInterval(notionPollInterval);
+        notionPollInterval = null;
+    }
+}
+
+async function runNotionPush() {
+    const notionDbUrl = document.getElementById('notion-db-url')?.value?.trim() || '';
+    const includeClaims = document.getElementById('notion-include-claims').checked;
+    const includeEnrichment = document.getElementById('notion-include-enrichment').checked;
+
+    document.getElementById('notion-form').style.display = 'none';
+    document.getElementById('notion-progress').style.display = 'block';
+    document.getElementById('notion-phase').textContent = 'Starting push...';
+    document.getElementById('notion-progress-bar').style.width = '0%';
+    document.getElementById('notion-progress-text').textContent = '';
+
+    try {
+        const resp = await fetch('/api/push_notion', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notionDbUrl, includeClaims, includeEnrichment })
+        });
+
+        const result = await resp.json();
+
+        if (!resp.ok || result.error) {
+            showNotionDone(false, result.error || 'Push failed');
+            return;
+        }
+
+        notionPushJobId = result.jobId;
+        notionPushDbId = result.notionDbId || null;
+        pollNotionStatus();
+        notionPollInterval = setInterval(pollNotionStatus, 3000);
+
+    } catch (err) {
+        showNotionDone(false, 'Connection error: ' + err.message);
+    }
+}
+
+async function pollNotionStatus() {
+    if (!notionPushJobId) return;
+
+    try {
+        const resp = await fetch('/api/push_notion/status/' + notionPushJobId);
+        const job = await resp.json();
+
+        if (job.error && job.status === 'failed') {
+            clearInterval(notionPollInterval);
+            notionPollInterval = null;
+            showNotionDone(false, job.error);
+            return;
+        }
+
+        const phaseEl = document.getElementById('notion-phase');
+        const barEl = document.getElementById('notion-progress-bar');
+        const textEl = document.getElementById('notion-progress-text');
+
+        const phaseLabels = {
+            archiving: 'Archiving existing pages...',
+            entities: 'Extracting entities...',
+            keywords: 'Extracting keywords...',
+            creating: 'Creating pages...',
+            starting: 'Starting...'
+        };
+        phaseEl.textContent = phaseLabels[job.phase] || job.phase || 'Processing...';
+
+        let pct = 0;
+        let current = 0;
+        let total = 0;
+
+        if (job.phase === 'archiving') {
+            total = job.archiveTotal || 0;
+            current = job.archived || 0;
+        } else if (job.phase === 'entities' || job.phase === 'keywords') {
+            total = job.enrichTotal || 0;
+            current = job.enrichProcessed || 0;
+        } else {
+            total = job.total || 0;
+            current = job.processed || 0;
+        }
+
+        pct = total > 0 ? Math.round((current / total) * 100) : 0;
+        barEl.style.width = pct + '%';
+        textEl.textContent = current + ' / ' + total;
+
+        if (job.status === 'done') {
+            clearInterval(notionPollInterval);
+            notionPollInterval = null;
+            const errCount = job.errorCount || 0;
+            const msg = job.processed + ' pages pushed' + (errCount > 0 ? ', ' + errCount + ' errors' : '');
+            showNotionDone(true, msg);
+        }
+
+    } catch (err) {
+        // Silently retry on transient network errors
+    }
+}
+
+function showNotionDone(success, message) {
+    document.getElementById('notion-progress').style.display = 'none';
+    document.getElementById('notion-form').style.display = 'none';
+    document.getElementById('notion-done').style.display = 'block';
+
+    const msgEl = document.getElementById('notion-done-msg');
+    const openLink = document.getElementById('notion-open-link');
+
+    if (success) {
+        msgEl.innerHTML = '<span style="color:#6a7a40;">&#10003;</span> Done — ' + message;
+        if (notionPushDbId) {
+            const cleanId = notionPushDbId.replace(/-/g, '');
+            openLink.href = 'https://notion.so/' + cleanId;
+            openLink.style.display = 'inline-block';
+        }
+    } else {
+        msgEl.innerHTML = '<span style="color:#e74c3c;">&#10007;</span> Error — ' + message;
+        openLink.style.display = 'none';
     }
 }
