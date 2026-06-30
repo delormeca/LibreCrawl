@@ -1023,6 +1023,8 @@ class WebCrawler:
 
             # Only parse HTML content
             if 'text/html' in response.headers.get('content-type', ''):
+                # Preserve raw HTML for challenge detection
+                result['_raw_html'] = response.text
                 soup = BeautifulSoup(response.content, 'html.parser')
 
                 # --- ALWAYS: basic SEO + body text + sections + enriched links ---
@@ -1184,6 +1186,9 @@ class WebCrawler:
                 'javascript_rendered': True
             }
 
+            # Preserve raw HTML for challenge detection (script tags stripped by extraction)
+            result['_raw_html'] = html_content
+
             # Parse HTML
             soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -1335,67 +1340,64 @@ class WebCrawler:
                             result = await task
                             if result:
                                 # Smart mode: check if page was blocked
-                                if (self.strategy.strategy == 'smart' and
-                                    not self.strategy.should_use_stealth() and
-                                    self._is_blocked(result)):
+                                if self.strategy.strategy == 'smart':
+                                    block_type = self._classify_response(result)
 
-                                    action = self.strategy.report_block()
-                                    blocked_url = result['url']
-                                    blocked_depth = result.get('depth', 0)
+                                    if block_type != 'ok' and not self.strategy.should_use_stealth():
+                                        action = self.strategy.report_block(block_type)
+                                        blocked_url = result['url']
+                                        blocked_depth = result.get('depth', 0)
 
-                                    if action == 'retry_stealth':
-                                        print(f"Smart mode: {blocked_url} blocked — retrying with stealth")
-                                        if not self.camoufox_renderer:
-                                            from src.core.camoufox_renderer import CamoFoxRenderer
-                                            self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
-                                            await self.camoufox_renderer.start()
-                                        try:
-                                            html_content, status_code = await self.camoufox_renderer.render_page(
-                                                blocked_url,
-                                                wait_time=self.config.get('js_wait_time', 3),
-                                                timeout=self.config.get('js_timeout', 30))
-                                            # Re-run extraction on the stealth-fetched HTML
-                                            result['status_code'] = status_code
-                                            result['size'] = len(html_content.encode('utf-8'))
-                                            result['javascript_rendered'] = True
-                                            from bs4 import BeautifulSoup
-                                            soup = BeautifulSoup(html_content, 'html.parser')
-                                            self.seo_extractor.extract_basic_seo_data(soup, result)
-                                            self.seo_extractor.extract_body_text(html_content, result)
-                                            print(f"Smart mode: stealth retry OK for {blocked_url}")
-                                        except Exception as e:
-                                            print(f"Smart mode: stealth retry failed for {blocked_url}: {e}")
+                                        if action in ('retry_stealth', 'escalated'):
+                                            if action == 'escalated':
+                                                print(f"Smart mode: {self.strategy.escalation_threshold} consecutive blocks — ESCALATING to STEALTH")
+                                            else:
+                                                print(f"Smart mode: {blocked_url} blocked ({block_type}) — retrying with stealth")
 
-                                    elif action == 'escalated':
-                                        print(f"Smart mode: {self.strategy.escalation_threshold} consecutive blocks — ESCALATING to STEALTH")
-                                        if not self.camoufox_renderer:
-                                            from src.core.camoufox_renderer import CamoFoxRenderer
-                                            self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
-                                            await self.camoufox_renderer.start()
-                                        max_workers = 1
-                                        # Retry with stealth using direct render (avoid double-add from _crawl_url_with_javascript)
-                                        try:
-                                            html_content, status_code = await self.camoufox_renderer.render_page(
-                                                blocked_url,
-                                                wait_time=self.config.get('js_wait_time', 3),
-                                                timeout=self.config.get('js_timeout', 30))
-                                            result['status_code'] = status_code
-                                            result['size'] = len(html_content.encode('utf-8'))
-                                            result['javascript_rendered'] = True
-                                            from bs4 import BeautifulSoup
-                                            soup = BeautifulSoup(html_content, 'html.parser')
-                                            self.seo_extractor.extract_basic_seo_data(soup, result)
-                                            self.seo_extractor.extract_body_text(html_content, result)
-                                        except Exception as e:
-                                            print(f"Smart mode: escalation retry failed for {blocked_url}: {e}")
+                                            if not self.camoufox_renderer:
+                                                from src.core.camoufox_renderer import CamoFoxRenderer
+                                                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                                                await self.camoufox_renderer.start()
 
-                                    elif action == 'skip':
-                                        print(f"Smart mode: {blocked_url} blocked, no proxy configured — skipping")
+                                            if action == 'escalated':
+                                                max_workers = 1
 
-                                else:
-                                    # Not blocked — report success
-                                    if hasattr(self, 'strategy') and not self._is_blocked(result):
+                                            try:
+                                                html_content, status_code = await self.camoufox_renderer.render_page(
+                                                    blocked_url,
+                                                    wait_time=self.config.get('js_wait_time', 3),
+                                                    timeout=self.config.get('js_timeout', 30))
+                                                result['status_code'] = status_code
+                                                result['size'] = len(html_content.encode('utf-8'))
+                                                result['javascript_rendered'] = True
+                                                result['_raw_html'] = html_content
+                                                from bs4 import BeautifulSoup
+                                                soup = BeautifulSoup(html_content, 'html.parser')
+                                                self.seo_extractor.extract_basic_seo_data(soup, result)
+                                                self.seo_extractor.extract_body_text(html_content, result)
+                                                print(f"Smart mode: stealth retry OK for {blocked_url}")
+
+                                                # Check if challenge was solved (real content now)
+                                                retry_type = self._classify_response(result)
+                                                if retry_type == 'ok' and not self.strategy.challenge_solved:
+                                                    self.strategy.report_challenge_solved()
+                                                    print(f"Smart mode: challenge solved, boosting concurrency")
+
+                                            except Exception as e:
+                                                print(f"Smart mode: stealth retry failed for {blocked_url}: {e}")
+
+                                        elif action == 'skip':
+                                            print(f"Smart mode: {blocked_url} blocked ({block_type}), no proxy configured — skipping")
+
+                                    elif block_type == 'ok':
+                                        # Not blocked — report success
                                         self.strategy.report_success()
+
+                                # Update concurrency after each batch
+                                new_concurrency = self.strategy.get_concurrency()
+                                if new_concurrency != max_workers:
+                                    max_workers = new_concurrency
+                                    print(f"Smart mode: concurrency updated to {max_workers}")
 
                                 with self.results_lock:
                                     self.crawl_results.append(result)
