@@ -693,10 +693,35 @@ def auto_config():
     except Exception as e:
         return jsonify({'success': False, 'error': f'Could not reach site: {e}'})
 
-    if status in (403, 503):
-        result['blocked'] = True
-        result['jsNeeded'] = True
-        result['reasons'].append(f'Site returned {status} — stealth mode recommended')
+    if status in (403, 429, 503):
+        html_lower = html.lower()
+
+        # Distinguish challenge from hard block
+        challenge_sigs = ['just a moment', 'checking your browser',
+                          'cf-browser-verification', '_cf_chl_opt',
+                          'vercel security checkpoint',
+                          "we're verifying your browser",
+                          'challenge-platform']
+        block_sigs = ['sorry, you have been blocked', 'you are unable to access',
+                      'attention required']
+
+        if any(sig in html_lower for sig in challenge_sigs):
+            result['protection'] = 'challenge'
+            result['jsNeeded'] = True
+            result['reasons'].append('Challenge page detected — CamoFox stealth will solve it automatically')
+            recommended['crawlStrategy'] = 'smart'
+        elif any(sig in html_lower for sig in block_sigs):
+            result['protection'] = 'waf_block'
+            result['blocked'] = True
+            result['jsNeeded'] = True
+            result['reasons'].append('WAF block detected — proxy required')
+            recommended['crawlStrategy'] = 'force_stealth'
+            recommended['enableProxy'] = True
+        else:
+            result['protection'] = 'unknown_block'
+            result['blocked'] = True
+            result['jsNeeded'] = True
+            result['reasons'].append(f'Site returned {status} — stealth mode recommended')
 
     # 2. Detect platform
     html_lower = html.lower()
