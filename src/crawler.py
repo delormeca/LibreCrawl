@@ -1377,6 +1377,20 @@ class WebCrawler:
                                                 self.seo_extractor.extract_body_text(html_content, result)
                                                 print(f"Smart mode: stealth retry OK for {blocked_url}")
 
+                                                # Re-run link extraction on the real content
+                                                is_internal = self.link_manager.is_internal(blocked_url)
+                                                if is_internal and blocked_depth < self.config['max_depth']:
+                                                    self.link_manager.extract_links(soup, blocked_url, blocked_depth + 1, self._should_crawl_url)
+
+                                                # Re-run enriched link collection + link counts
+                                                if not self.content_vectorization_mode:
+                                                    result['sections'] = self.seo_extractor.extract_sections(
+                                                        html_content, title=result.get('title', ''),
+                                                        clean_text=result.get('body_text', ''))
+                                                    self.link_manager.collect_all_links_enriched(
+                                                        soup, blocked_url, result['sections'], self.crawl_results)
+                                                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+
                                                 # Check if challenge was solved (real content now)
                                                 retry_type = self._classify_response(result)
                                                 if retry_type == 'ok' and not self.strategy.challenge_solved:
