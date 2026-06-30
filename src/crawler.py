@@ -1488,16 +1488,49 @@ class WebCrawler:
 
         print(f"Updated linked_from data for {updated_count} URLs")
 
-    def _is_blocked(self, result):
-        """Detect if a page response indicates blocking."""
+    def _classify_response(self, result):
+        """Classify a response as: 'ok', 'challenge', or 'hard_block'."""
         status = result.get('status_code', 0)
-        if status in (0, 403, 429, 503):
-            return True
         body = result.get('body_text', '')
+        html_lower = result.get('_raw_html', body).lower()
+
+        if status == 0:
+            return 'hard_block'
+
+        challenge_signatures = [
+            'just a moment',
+            'checking your browser',
+            'cf-browser-verification',
+            'vercel security checkpoint',
+            "we're verifying your browser",
+            '_cf_chl_opt',
+            'challenge-platform',
+        ]
+        if any(sig in html_lower for sig in challenge_signatures):
+            return 'challenge'
+
+        block_signatures = [
+            'sorry, you have been blocked',
+            'access denied',
+            'you are unable to access',
+            'attention required',
+        ]
+        if status in (403, 503) and any(sig in html_lower for sig in block_signatures):
+            return 'hard_block'
+
+        if status in (403, 429, 503):
+            if status == 429:
+                return 'challenge'
+            return 'hard_block'
+
         if status == 200 and len(body) < 100:
-            if any(sig in body.lower() for sig in ['checking your browser', 'cf-browser-verification', 'access denied']):
-                return True
-        return False
+            return 'challenge'
+
+        return 'ok'
+
+    def _is_blocked(self, result):
+        """Backward-compat alias for _classify_response."""
+        return self._classify_response(result) != 'ok'
 
     def _should_crawl_url(self, url):
         """Check if URL should be crawled based on settings"""
