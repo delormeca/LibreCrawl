@@ -115,6 +115,12 @@ class CamoFoxRenderer:
         '.cc-accept', '.cc-allow', '#onetrust-accept-btn-handler',
     ]
 
+    # Challenge page title signatures — used to detect and wait for resolution
+    _CHALLENGE_TITLES = [
+        'just a moment', 'vercel security checkpoint',
+        'attention required', 'checking your browser',
+    ]
+
     @staticmethod
     async def _dismiss_cookie_banner(page):
         """Try to click cookie accept buttons to dismiss banners."""
@@ -135,7 +141,36 @@ class CamoFoxRenderer:
             try:
                 await page.route('**/*', CamoFoxRenderer._block_heavy_resources)
                 response = await page.goto(url, wait_until='domcontentloaded', timeout=timeout * 1000)
-                await page.wait_for_timeout(wait_time * 1000)
+
+                # Check if we landed on a challenge page
+                title = await page.title()
+                is_challenge = any(sig in title.lower() for sig in CamoFoxRenderer._CHALLENGE_TITLES)
+
+                if is_challenge:
+                    print(f"CamoFox: challenge detected for {url} (title: {title})")
+                    # Wait for challenge to solve — it triggers reload/redirect
+                    try:
+                        await page.wait_for_event('load', timeout=20000)
+                        # After reload, wait for content to render
+                        await page.wait_for_timeout(2000)
+                    except Exception:
+                        print(f"CamoFox: challenge wait timed out for {url}")
+
+                    # Re-check: did challenge resolve?
+                    new_title = await page.title()
+                    still_challenge = any(sig in new_title.lower()
+                                          for sig in CamoFoxRenderer._CHALLENGE_TITLES)
+                    if still_challenge:
+                        print(f"CamoFox: challenge NOT resolved for {url} (still: {new_title})")
+                        content = await page.content()
+                        status = response.status if response else 403
+                        return content, status
+                    else:
+                        print(f"CamoFox: challenge SOLVED for {url} (now: {new_title})")
+                else:
+                    # No challenge — normal wait for JS rendering
+                    await page.wait_for_timeout(wait_time * 1000)
+
                 await CamoFoxRenderer._dismiss_cookie_banner(page)
                 content = await page.content()
                 status = response.status if response else 200
