@@ -662,6 +662,121 @@ def debug_memory_page():
     """Debug page with nice UI for memory monitoring"""
     return render_template('debug_memory.html')
 
+@app.route('/api/auto_config', methods=['POST'])
+@login_required
+def auto_config():
+    """Probe a URL and return optimal crawl settings."""
+    import requests as http_requests
+
+    data = request.get_json()
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'success': False, 'error': 'URL is required'})
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    result = {
+        'platform': 'Unknown',
+        'jsNeeded': False,
+        'reasons': [],
+    }
+
+    # 1. Fetch homepage via HTTP
+    try:
+        resp = http_requests.get(url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }, allow_redirects=True)
+        html = resp.text
+        html_len = len(html)
+        status = resp.status_code
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Could not reach site: {e}'})
+
+    if status in (403, 503):
+        result['blocked'] = True
+        result['jsNeeded'] = True
+        result['reasons'].append(f'Site returned {status} — stealth mode recommended')
+
+    # 2. Detect platform
+    html_lower = html.lower()
+    if 'shopify.' in html_lower or 'cdn.shopify.com' in html_lower:
+        result['platform'] = 'Shopify'
+    elif 'wp-content' in html_lower or 'wordpress' in html_lower:
+        result['platform'] = 'WordPress'
+    elif '__next_data__' in html or '__NEXT_DATA__' in html:
+        result['platform'] = 'Next.js'
+    elif 'ng-version' in html_lower or 'ng-app' in html_lower:
+        result['platform'] = 'Angular'
+    elif '_nuxt' in html_lower:
+        result['platform'] = 'Nuxt/Vue'
+    elif 'react' in html_lower and 'root' in html_lower:
+        result['platform'] = 'React SPA'
+
+    # 3. Check if JS is needed — extract body text and internal links from raw HTML
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    # Remove script/style
+    for tag in soup.find_all(['script', 'style']):
+        tag.decompose()
+    body_text = soup.get_text(separator=' ', strip=True)
+    internal_links = [a.get('href', '') for a in soup.find_all('a', href=True)
+                      if a['href'].startswith('/') or url in a['href']]
+
+    if len(body_text) < 500 and len(internal_links) < 5:
+        result['jsNeeded'] = True
+        result['reasons'].append(f'Thin HTML ({len(body_text)} chars, {len(internal_links)} links) — JS rendering needed')
+    else:
+        result['reasons'].append(f'Rich HTML ({len(body_text)} chars, {len(internal_links)} links) — HTTP mode is fine')
+
+    # 4. Check robots.txt for crawl-delay
+    crawl_delay = None
+    try:
+        from urllib.parse import urlparse as _urlparse
+        try:
+            parsed = _urlparse(url)
+        except ValueError:
+            parsed = None
+        if not parsed or not parsed.netloc:
+            raise ValueError('Invalid URL')
+        robots_resp = http_requests.get(
+            f'{parsed.scheme}://{parsed.netloc}/robots.txt',
+            timeout=5, headers={'User-Agent': 'LibreCrawl/1.0'}
+        )
+        if robots_resp.status_code == 200:
+            for line in robots_resp.text.splitlines():
+                if line.lower().startswith('crawl-delay'):
+                    try:
+                        crawl_delay = float(line.split(':')[1].strip())
+                        result['reasons'].append(f'robots.txt crawl-delay: {crawl_delay}s')
+                    except (ValueError, IndexError):
+                        pass
+    except Exception:
+        pass
+
+    # 5. Build recommended settings
+    recommended = {
+        'enableJavaScript': result['jsNeeded'],
+        'includePatterns': '',
+        'enableProxy': result.get('blocked', False),
+        'crawlStrategy': 'smart',
+    }
+    if crawl_delay and crawl_delay > 0:
+        recommended['crawlDelay'] = max(crawl_delay, 0.3)
+
+    # Platform-specific tweaks
+    if result['platform'] == 'Shopify' and not result['jsNeeded']:
+        result['reasons'].append('Shopify SSR detected — HTTP mode with full content')
+    if result['platform'] in ('Next.js', 'Angular', 'Nuxt/Vue', 'React SPA'):
+        result['jsNeeded'] = True
+        recommended['enableJavaScript'] = True
+        result['reasons'].append(f'{result["platform"]} detected — JS rendering required')
+
+    result['recommended'] = recommended
+    result['success'] = True
+    return jsonify(result)
+
+
 @app.route('/api/start_crawl', methods=['POST'])
 @login_required
 def start_crawl():
@@ -2368,11 +2483,31 @@ def push_notion():
     if domain.startswith('www.'):
         domain = domain[4:]
 
+    # Trim heavy fields before sending — bridge only needs SEO metadata, not full content
+    urls_trimmed = []
+    for u in urls:
+        entry = dict(u)
+        # Truncate body_text (bridge only uses length)
+        bt = entry.get('body_text', '')
+        entry['body_text'] = bt[:2000] if bt else ''
+        # Drop sections (huge, not used by bridge)
+        entry.pop('sections', None)
+        # Truncate images to count + alt check (drop src/full data)
+        imgs = entry.get('images', [])
+        entry['images'] = [{'alt': img.get('alt', ''), 'src': ''} for img in imgs[:50]] if imgs else []
+        # Truncate json_ld to first 2000 chars serialized
+        jld = entry.get('json_ld', [])
+        if jld:
+            import json as _json
+            entry['json_ld_str'] = _json.dumps(jld)[:2000]
+            entry['json_ld'] = jld[:3]  # Keep max 3 schemas
+        urls_trimmed.append(entry)
+
     # Wrap URLs in the shape pushToNotion expects
     urls_wrapped = {
         'export_date': datetime.now().isoformat(),
-        'total_urls': len(urls),
-        'data': urls
+        'total_urls': len(urls_trimmed),
+        'data': urls_trimmed
     }
 
     # Reshape claims: load from crawl_db, group by URL
@@ -2395,6 +2530,17 @@ def push_notion():
         except Exception:
             pass
 
+    # Pre-compute link counts instead of sending 500K+ raw links
+    # Bridge only needs: inBodyInternal(url) and totalInternal(url)
+    in_body_map = {}
+    total_internal_map = {}
+    for lnk in links:
+        if lnk.get('is_internal'):
+            src = lnk.get('source_url', '')
+            total_internal_map[src] = total_internal_map.get(src, 0) + 1
+            if lnk.get('placement') == 'body':
+                in_body_map[src] = in_body_map.get(src, 0) + 1
+
     payload = {
         'domain': domain,
         'notionDbUrl': notion_db_url,
@@ -2402,14 +2548,33 @@ def push_notion():
         'includeClaims': include_claims,
         'urls': urls_wrapped,
         'claims': claims_payload,
-        'links': links,
+        'links': [],
+        'linkCounts': {'inBody': in_body_map, 'totalInternal': total_internal_map},
         'linkReport': []
     }
 
+    # Check payload size before sending
+    import json as _json
+    payload_bytes = len(_json.dumps(payload).encode('utf-8'))
+    payload_mb = payload_bytes / (1024 * 1024)
+    print(f"[push_notion] Payload size: {payload_mb:.1f} MB ({len(urls_trimmed)} URLs, {len(links)} links pre-computed)")
+
+    if payload_mb > 180:
+        return jsonify({
+            'error': f'Payload too large ({payload_mb:.0f} MB). Try crawling fewer pages (max ~10,000) or contact support.'
+        }), 413
+
     try:
         resp = http_requests.post(f'{BRIDGE_API_URL}/api/crawl-notion/push-raw',
-                                  json=payload, headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=30)
-        return jsonify(resp.json()), resp.status_code
+                                  json=payload, headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=300)
+        if resp.status_code == 413:
+            return jsonify({'error': f'Payload too large for bridge ({payload_mb:.0f} MB). Reduce crawl size.'}), 413
+        try:
+            return jsonify(resp.json()), resp.status_code
+        except ValueError:
+            return jsonify({'error': f'Bridge returned invalid response (status {resp.status_code}). Payload was {payload_mb:.0f} MB.'}), 502
+    except http_requests.exceptions.Timeout:
+        return jsonify({'error': f'Bridge timed out processing {len(urls_trimmed)} pages ({payload_mb:.0f} MB). Push may still be running — check Notion.'}), 504
     except Exception as e:
         return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
 
@@ -2424,6 +2589,19 @@ def push_notion_status(job_id):
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({'error': f'Bridge connection failed: {str(e)}'}), 502
+
+
+@app.route('/api/push_notion/cancel/<job_id>', methods=['POST'])
+@login_required
+def push_notion_cancel(job_id):
+    """Cancel a running push job."""
+    import requests as http_requests
+    try:
+        resp = http_requests.post(f'{BRIDGE_API_URL}/api/crawl-notion/push/cancel/{job_id}',
+                                   headers={'Authorization': f'Bearer {BRIDGE_API_TOKEN}'}, timeout=10)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': f'Cancel failed: {str(e)}'}), 502
 
 
 def recover_crashed_crawls():

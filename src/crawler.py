@@ -34,7 +34,7 @@ class WebCrawler:
         # HTTP session
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'LibreCrawl/1.0 (Web Crawler)'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         })
 
         # Base URL tracking
@@ -229,6 +229,16 @@ class WebCrawler:
             parsed = urlparse(url)
             self.base_url = f"{parsed.scheme}://{parsed.netloc}"
             self.base_domain = parsed.netloc
+
+            # Clear include_patterns that don't match the target domain
+            # (prevents stale patterns from a previous crawl blocking link discovery)
+            if self.config.get('include_patterns'):
+                matching = [p for p in self.config['include_patterns']
+                            if p and re.search(p, self.base_url)]
+                if not matching:
+                    print(f"Warning: include_patterns {self.config['include_patterns']} "
+                          f"don't match target {self.base_url} — clearing for this crawl")
+                    self.config['include_patterns'] = []
 
             # If URL has a path (not just domain), set max_depth to 0 to only crawl that page
             has_path = parsed.path and parsed.path not in ('/', '')
@@ -793,6 +803,18 @@ class WebCrawler:
                             try:
                                 result = future.result()
                                 if result:
+                                    # Auto-backoff on 429s
+                                    if result.get('status_code') == 429:
+                                        self._consecutive_429s = getattr(self, '_consecutive_429s', 0) + 1
+                                        if self._consecutive_429s >= 3:
+                                            old_delay = self.config['delay']
+                                            self.config['delay'] = min(old_delay * 2, 10)
+                                            if self.rate_limiter:
+                                                self.rate_limiter.rate = 1.0 / self.config['delay']
+                                            print(f"429 backoff: delay {old_delay}s → {self.config['delay']}s (after {self._consecutive_429s} consecutive 429s)")
+                                    else:
+                                        self._consecutive_429s = 0
+
                                     with self.results_lock:
                                         self.crawl_results.append(result)
                                         self.stats['crawled'] += 1
@@ -803,7 +825,7 @@ class WebCrawler:
                                     self.user_memory.track_url(result)
 
                                     # Detect issues (skip in content vectorization and linkgraph modes)
-                                    if not self.content_vectorization_mode and not self.linkgraph_mode:
+                                    if not self.content_vectorization_mode:
                                         issues_before = len(self.issue_detector.detected_issues)
                                         self.issue_detector.detect_issues(result)
                                         issues_after = len(self.issue_detector.detected_issues)
@@ -977,7 +999,7 @@ class WebCrawler:
             }
 
             # Stealth fallback: retry with CamoFox on bot-blocked responses
-            if result['status_code'] in (403, 503):
+            if result['status_code'] in (403, 429, 503):
                 try:
                     if not self.camoufox_renderer:
                         from src.core.camoufox_renderer import CamoFoxRenderer
@@ -1033,17 +1055,16 @@ class WebCrawler:
                             section['url'] = url
                         self.unsaved_sections.extend(result['sections'])
 
-                    # --- STANDARD MODE ONLY: full SEO extraction ---
-                    if not self.linkgraph_mode:
-                        self.seo_extractor.extract_meta_tags(soup, result)
-                        self.seo_extractor.extract_opengraph_tags(soup, result)
-                        self.seo_extractor.extract_twitter_tags(soup, result)
-                        self.seo_extractor.extract_json_ld(soup, result)
-                        self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
-                        self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-                        self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-                        self.seo_extractor.extract_hreflang(soup, result)
-                        self.seo_extractor.extract_schema_org(soup, result)
+                    # --- Full SEO extraction (always, including linkgraph mode) ---
+                    self.seo_extractor.extract_meta_tags(soup, result)
+                    self.seo_extractor.extract_opengraph_tags(soup, result)
+                    self.seo_extractor.extract_twitter_tags(soup, result)
+                    self.seo_extractor.extract_json_ld(soup, result)
+                    self.seo_extractor.extract_analytics_tracking(soup, response.text, result)
+                    self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                    self.seo_extractor.extract_hreflang(soup, result)
+                    self.seo_extractor.extract_schema_org(soup, result)
 
                 else:
                     # Content vectorization mode: minimal extraction + its own link logic
@@ -1193,17 +1214,16 @@ class WebCrawler:
                         section['url'] = url
                     self.unsaved_sections.extend(result['sections'])
 
-                # --- STANDARD MODE ONLY: full SEO extraction ---
-                if not self.linkgraph_mode:
-                    self.seo_extractor.extract_meta_tags(soup, result)
-                    self.seo_extractor.extract_opengraph_tags(soup, result)
-                    self.seo_extractor.extract_twitter_tags(soup, result)
-                    self.seo_extractor.extract_json_ld(soup, result)
-                    self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
-                    self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
-                    self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
-                    self.seo_extractor.extract_hreflang(soup, result)
-                    self.seo_extractor.extract_schema_org(soup, result)
+                # --- Full SEO extraction (always, including linkgraph mode) ---
+                self.seo_extractor.extract_meta_tags(soup, result)
+                self.seo_extractor.extract_opengraph_tags(soup, result)
+                self.seo_extractor.extract_twitter_tags(soup, result)
+                self.seo_extractor.extract_json_ld(soup, result)
+                self.seo_extractor.extract_analytics_tracking(soup, html_content, result)
+                self.seo_extractor.extract_images(soup, url, result, http_session=self.session)
+                self.seo_extractor.extract_link_counts(soup, result, self.base_domain)
+                self.seo_extractor.extract_hreflang(soup, result)
+                self.seo_extractor.extract_schema_org(soup, result)
 
             else:
                 # Content vectorization mode: minimal extraction + its own link logic
@@ -1387,7 +1407,7 @@ class WebCrawler:
                                 self.user_memory.track_url(result)
 
                                 # Detect issues (skip in content vectorization and linkgraph modes)
-                                if not self.content_vectorization_mode and not self.linkgraph_mode:
+                                if not self.content_vectorization_mode:
                                     issues_before = len(self.issue_detector.detected_issues)
                                     self.issue_detector.detect_issues(result)
                                     issues_after = len(self.issue_detector.detected_issues)
@@ -1471,7 +1491,7 @@ class WebCrawler:
     def _is_blocked(self, result):
         """Detect if a page response indicates blocking."""
         status = result.get('status_code', 0)
-        if status in (0, 403, 503):
+        if status in (0, 403, 429, 503):
             return True
         body = result.get('body_text', '')
         if status == 200 and len(body) < 100:
