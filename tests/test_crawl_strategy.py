@@ -88,14 +88,15 @@ class TestCrawlStrategy:
         result = s.report_block()
         assert result == 'skip'
 
-    def test_challenge_solved_increases_concurrency(self):
+    def test_challenge_solved_stays_concurrency_1(self):
+        """CamoFox cannot handle concurrent navigations on protected sites."""
         s = CrawlStrategy(strategy='smart', proxy_url=None)
-        assert s.get_concurrency() == 3
+        assert s.get_concurrency() == 3  # fast mode
         s.current_mode = 'stealth'
-        assert s.get_concurrency() == 1
+        assert s.get_concurrency() == 1  # stealth = 1
         s.report_challenge_solved()
         assert s.challenge_solved is True
-        assert s.get_concurrency() == 3
+        assert s.get_concurrency() == 1  # stays 1 — CamoFox can't do concurrent
 
     def test_stealth_fast_mode_uses_stealth_renderer(self):
         """After challenge solved, should_use_stealth() still returns True."""

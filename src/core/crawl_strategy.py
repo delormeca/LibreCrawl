@@ -63,11 +63,10 @@ class CrawlStrategy:
         self.current_mode = 'stealth_fast'
 
     def get_concurrency(self):
-        """Current max concurrent pages."""
+        """Current max concurrent pages.
+        CamoFox must stay at 1 — concurrent navigations timeout on protected sites."""
         if self.strategy == 'force_fast':
             return self.fast_concurrency
-        if self.challenge_solved:
-            return min(self.fast_concurrency, 3)
         if self.should_use_stealth():
             return 1
         return self.fast_concurrency
