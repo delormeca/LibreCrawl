@@ -694,9 +694,9 @@ def auto_config():
         return jsonify({'success': False, 'error': f'Could not reach site: {e}'})
 
     if status in (403, 429, 503):
-        html_lower = html.lower()
+        html_lower_status = html.lower()
 
-        # Distinguish challenge from hard block
+        # Distinguish challenge from hard block (applied to recommended AFTER it's built below)
         challenge_sigs = ['just a moment', 'checking your browser',
                           'cf-browser-verification', '_cf_chl_opt',
                           'vercel security checkpoint',
@@ -705,18 +705,15 @@ def auto_config():
         block_sigs = ['sorry, you have been blocked', 'you are unable to access',
                       'attention required']
 
-        if any(sig in html_lower for sig in challenge_sigs):
+        if any(sig in html_lower_status for sig in challenge_sigs):
             result['protection'] = 'challenge'
             result['jsNeeded'] = True
             result['reasons'].append('Challenge page detected — CamoFox stealth will solve it automatically')
-            recommended['crawlStrategy'] = 'smart'
-        elif any(sig in html_lower for sig in block_sigs):
+        elif any(sig in html_lower_status for sig in block_sigs):
             result['protection'] = 'waf_block'
             result['blocked'] = True
             result['jsNeeded'] = True
             result['reasons'].append('WAF block detected — proxy required')
-            recommended['crawlStrategy'] = 'force_stealth'
-            recommended['enableProxy'] = True
         else:
             result['protection'] = 'unknown_block'
             result['blocked'] = True
@@ -796,6 +793,16 @@ def auto_config():
         result['jsNeeded'] = True
         recommended['enableJavaScript'] = True
         result['reasons'].append(f'{result["platform"]} detected — JS rendering required')
+
+    # Apply protection-specific overrides (detection ran earlier, before recommended was built)
+    protection = result.get('protection')
+    if protection == 'challenge':
+        recommended['crawlStrategy'] = 'smart'
+        recommended['enableJavaScript'] = True
+    elif protection == 'waf_block':
+        recommended['crawlStrategy'] = 'force_stealth'
+        recommended['enableProxy'] = True
+        recommended['enableJavaScript'] = True
 
     result['recommended'] = recommended
     result['success'] = True
@@ -2723,16 +2730,17 @@ def main():
     # Open browser in a separate thread after short delay
     def open_browser():
         time.sleep(1.5)  # Wait for Flask to start
-        webbrowser.open('http://localhost:5000')
+        webbrowser.open(f'http://localhost:{port}')
 
     browser_thread = threading.Thread(target=open_browser, daemon=True)
     browser_thread.start()
 
     # Run Flask server with Waitress (production-grade WSGI server)
     from waitress import serve
-    print("Starting LibreCrawl on http://localhost:5000")
+    port = int(os.getenv('PORT', 5000))
+    print(f"Starting LibreCrawl on http://localhost:{port}")
     print("Using Waitress WSGI server with multi-threading support")
-    serve(app, host='0.0.0.0', port=5000, threads=8)
+    serve(app, host='0.0.0.0', port=port, threads=8)
 
 if __name__ == '__main__':
     main()
