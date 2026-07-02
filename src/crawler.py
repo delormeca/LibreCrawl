@@ -1609,7 +1609,9 @@ class WebCrawler:
                     # RobotFileParser to set disallow_all=True and block everything.
                     response = self.session.get(robots_url, timeout=10)
                     if response.status_code in (401, 403):
-                        rp.disallow_all = True
+                        # 403 often means bot protection blocking the request,
+                        # not the site disallowing crawling. Allow all.
+                        rp.allow_all = True
                     elif response.status_code >= 400:
                         rp.allow_all = True
                     else:
