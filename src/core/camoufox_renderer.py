@@ -18,6 +18,8 @@ class CamoFoxRenderer:
         self.proxy = self._parse_proxy(proxy_url) if proxy_url else None
         self._browser = None
         self._camoufox = None
+        self._page_count = 0
+        self._max_pages_before_restart = 500
 
     @staticmethod
     def _parse_proxy(proxy_url):
@@ -59,6 +61,12 @@ class CamoFoxRenderer:
     async def render_page(self, url, wait_time=3, timeout=30):
         """Render a page. Uses persistent browser if started, otherwise one-shot."""
         if self._browser:
+            # Restart browser periodically to prevent memory exhaustion
+            self._page_count += 1
+            if self._page_count % self._max_pages_before_restart == 0:
+                print(f"CamoFox: restarting browser after {self._page_count} pages (memory cleanup)")
+                await self.stop()
+                await self.start()
             return await self._render_with_browser(self._browser, url, wait_time, timeout)
 
         # One-shot: launch and kill per page (for sync fallback path)
