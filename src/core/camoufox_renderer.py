@@ -139,7 +139,8 @@ class CamoFoxRenderer:
         for attempt in range(retries + 1):
             page = await browser.new_page()
             try:
-                await page.route('**/*', CamoFoxRenderer._block_heavy_resources)
+                # No route interception on first load — page.route() triggers
+                # Cloudflare/Vercel bot detection on datacenter IPs
                 response = await page.goto(url, wait_until='domcontentloaded', timeout=timeout * 1000)
 
                 # Check if we landed on a challenge page
