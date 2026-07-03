@@ -285,7 +285,8 @@ class WebCrawler:
                 }
 
             # In stealth mode, give sitemap parser a CamoFox renderer for fetching
-            if self.config.get('stealth_mode', False):
+            # Skip if using Bright Data (no local browser needed)
+            if self.config.get('stealth_mode', False) and self.config.get('js_browser', 'chromium').lower() != 'brightdata':
                 from src.core.camoufox_renderer import CamoFoxRenderer
                 self.sitemap_parser.stealth_fetcher = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
 
@@ -1304,7 +1305,17 @@ class WebCrawler:
 
             # Init renderers based on strategy
             js_browser = self.config.get('js_browser', 'chromium').lower()
+            print(f"Renderer selection: js_browser={js_browser}, strategy={strategy_name}")
             if js_browser == 'brightdata':
+                # Bright Data handles EVERYTHING — force-clear conflicting settings
+                self.config['stealth_mode'] = False
+                self.config['enable_proxy'] = False
+                self.config['proxy_url'] = None
+                self.strategy = CrawlStrategy(
+                    strategy='force_fast',  # no smart mode retries needed
+                    proxy_url=None,
+                    fast_concurrency=3,
+                )
                 from src.core.brightdata_renderer import BrightDataRenderer
                 api_key = self.config.get('brightdata_api_key', '')
                 zone = self.config.get('brightdata_zone', 'web_unlocker1')
@@ -1353,7 +1364,8 @@ class WebCrawler:
                             result = await task
                             if result:
                                 # Smart mode: check if page was blocked
-                                if self.strategy.strategy == 'smart':
+                                # Skip when using Bright Data — it handles everything
+                                if self.strategy.strategy == 'smart' and not (hasattr(self, 'brightdata_renderer') and self.brightdata_renderer):
                                     block_type = self._classify_response(result)
 
                                     if block_type != 'ok' and not self.strategy.should_use_stealth():
