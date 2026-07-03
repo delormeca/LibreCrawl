@@ -1128,7 +1128,7 @@ class WebCrawler:
             if hasattr(self, 'brightdata_renderer') and self.brightdata_renderer:
                 html_content, status_code = await self.brightdata_renderer.render_page(
                     url, timeout=self.config.get('js_timeout', 30))
-                error = None
+                error = 'BrightData timeout' if status_code == 0 else None
             elif hasattr(self, 'strategy') and self.strategy.should_use_stealth():
                 html_content, status_code = await self.camoufox_renderer.render_page(
                     url,
@@ -1314,7 +1314,7 @@ class WebCrawler:
                 self.strategy = CrawlStrategy(
                     strategy='force_fast',  # no smart mode retries needed
                     proxy_url=None,
-                    fast_concurrency=3,
+                    fast_concurrency=10,
                 )
                 from src.core.brightdata_renderer import BrightDataRenderer
                 api_key = self.config.get('brightdata_api_key', '')

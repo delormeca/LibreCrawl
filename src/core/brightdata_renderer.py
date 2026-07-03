@@ -15,7 +15,7 @@ class BrightDataRenderer:
         self.api_key = api_key
         self.zone = zone
         self.endpoint = "https://api.brightdata.com/request"
-        self._executor = ThreadPoolExecutor(max_workers=3)
+        self._executor = ThreadPoolExecutor(max_workers=10)
 
     async def start(self):
         """No-op. No browser to launch."""
@@ -49,7 +49,7 @@ class BrightDataRenderer:
                     "format": "raw",
                     "render": True
                 },
-                timeout=timeout + 15
+                timeout=max(timeout, 60) + 15
             )
 
             if resp.status_code == 200:
