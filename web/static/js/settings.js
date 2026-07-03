@@ -56,6 +56,10 @@ let defaultSettings = {
     jsViewportHeight: 1080,
     jsMaxConcurrentPages: 3,
 
+    // Bright Data settings
+    brightdataApiKey: '',
+    brightdataZone: 'web_unlocker1',
+
     // Stealth browser settings
     stealthMode: false,
     crawlStrategy: 'smart',
@@ -310,7 +314,8 @@ function setupSettingsEventHandlers() {
         enableJavaScriptCheckbox.addEventListener('change', function() {
             const jsSettingsGroups = [
                 'jsSettings', 'jsTimeoutGroup', 'jsBrowserGroup', 'jsHeadlessGroup',
-                'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsWarning'
+                'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsWarning',
+                'brightdataSettings'
             ];
 
             jsSettingsGroups.forEach(groupId => {
@@ -461,7 +466,8 @@ function populateSettingsForm() {
     const enableJavaScript = currentSettings.enableJavaScript;
     const jsSettingsGroups = [
         'jsSettings', 'jsTimeoutGroup', 'jsBrowserGroup', 'jsHeadlessGroup',
-        'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsWarning'
+        'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsWarning',
+        'brightdataSettings'
     ];
 
     jsSettingsGroups.forEach(groupId => {
@@ -496,6 +502,7 @@ function collectSettingsFromForm() {
         'exportFormat', 'concurrency', 'memoryLimit', 'logLevel', 'saveSession',
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
+        'brightdataApiKey', 'brightdataZone',
         'customCSS', 'issueExclusionPatterns',
         'extractClaims'
     ];
@@ -905,5 +912,13 @@ function applyCustomCSS() {
         styleElement.textContent = customCSS;
         document.head.appendChild(styleElement);
         console.log('Custom CSS applied');
+    }
+}
+
+function toggleBrightDataSettings() {
+    const browser = document.getElementById('jsBrowser');
+    const bdSettings = document.getElementById('brightdataSettings');
+    if (browser && bdSettings) {
+        bdSettings.style.display = browser.value === 'brightdata' ? 'block' : 'none';
     }
 }

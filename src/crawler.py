@@ -50,6 +50,8 @@ class WebCrawler:
         self.seo_extractor = SEOExtractor()
         # CamoFox stealth renderer (lazy init on first use)
         self.camoufox_renderer = None
+        # Bright Data cloud renderer (init from settings)
+        self.brightdata_renderer = None
         self.memory_monitor = MemoryMonitor()
         self.user_memory = UserMemoryTracker()
 
@@ -1122,7 +1124,11 @@ class WebCrawler:
 
         try:
             # Use CamoFox if strategy says stealth, else Chromium
-            if hasattr(self, 'strategy') and self.strategy.should_use_stealth():
+            if hasattr(self, 'brightdata_renderer') and self.brightdata_renderer:
+                html_content, status_code = await self.brightdata_renderer.render_page(
+                    url, timeout=self.config.get('js_timeout', 30))
+                error = None
+            elif hasattr(self, 'strategy') and self.strategy.should_use_stealth():
                 html_content, status_code = await self.camoufox_renderer.render_page(
                     url,
                     wait_time=self.config.get('js_wait_time', 3),
@@ -1297,7 +1303,14 @@ class WebCrawler:
             )
 
             # Init renderers based on strategy
-            if self.strategy.strategy == 'force_stealth':
+            js_browser = self.config.get('js_browser', 'chromium').lower()
+            if js_browser == 'brightdata':
+                from src.core.brightdata_renderer import BrightDataRenderer
+                api_key = self.config.get('brightdata_api_key', '')
+                zone = self.config.get('brightdata_zone', 'web_unlocker1')
+                self.brightdata_renderer = BrightDataRenderer(api_key, zone)
+                await self.brightdata_renderer.start()
+            elif self.strategy.strategy == 'force_stealth':
                 from src.core.camoufox_renderer import CamoFoxRenderer
                 self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
                 await self.camoufox_renderer.start()
@@ -1481,9 +1494,11 @@ class WebCrawler:
                     set_crawl_status(self.crawl_id, 'completed')
 
             # Clean up renderers
-            if self.camoufox_renderer:
+            if hasattr(self, 'brightdata_renderer') and self.brightdata_renderer:
+                await self.brightdata_renderer.stop()
+            elif self.camoufox_renderer:
                 await self.camoufox_renderer.stop()
-            if hasattr(self, 'strategy') and self.strategy.strategy != 'force_stealth':
+            if hasattr(self, 'strategy') and self.strategy.strategy != 'force_stealth' and not (hasattr(self, 'brightdata_renderer') and self.brightdata_renderer):
                 await self.js_renderer.cleanup()
             elif not hasattr(self, 'strategy'):
                 await self.js_renderer.cleanup()

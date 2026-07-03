@@ -65,6 +65,12 @@
                         </svg>
                         Clear
                     </button>
+                    <button id="autoConfigBtn" class="btn btn-secondary" onclick="autoDetectAndCrawl()" title="Auto-detect optimal settings then start crawling">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                        Auto-Detect &amp; Crawl
+                    </button>
                 </div>
             </div>
             <div class="sitemap-seed-section">
@@ -835,7 +841,8 @@
                     <div class="setting-group">
                         <label for="includePatterns">Include URL Patterns</label>
                         <textarea id="includePatterns" rows="3" placeholder="One pattern per line (regex supported)"></textarea>
-                        <span class="setting-help">Only crawl URLs matching these patterns</span>
+                        <span class="setting-help">Only crawl URLs matching these patterns. Leave empty to crawl all pages on the domain.</span>
+                        <span class="setting-help" style="color: #fbbf24;">If set from a previous crawl, these patterns will block discovery on a different domain. Clear this field when switching sites.</span>
                     </div>
 
                     <div class="setting-group">
@@ -981,6 +988,15 @@
                 <div id="javascript-settings" class="settings-tab-content">
                     <h3>JavaScript Rendering Configuration</h3>
 
+                    <div class="setting-group" style="background: rgba(106,122,64,0.1); border: 1px solid rgba(106,122,64,0.3); border-radius: 6px; padding: 12px;">
+                        <strong>When to enable JS rendering</strong><br>
+                        <span class="setting-help" style="margin-top: 4px; display: block;">
+                            Required for Shopify, React, Next.js, Angular, Vue, and other SPA/JS-heavy sites.
+                            Without it, the crawler only sees the HTML shell and misses content, links, and product data.
+                            Not needed for WordPress, static sites, or server-rendered pages.
+                        </span>
+                    </div>
+
                     <div class="setting-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="enableJavaScript">
@@ -1003,12 +1019,21 @@
 
                     <div class="setting-group" id="jsBrowserGroup" style="display: none;">
                         <label for="jsBrowser">Browser Engine</label>
-                        <select id="jsBrowser">
+                        <select id="jsBrowser" onchange="toggleBrightDataSettings()">
                             <option value="chromium">Chromium (Recommended)</option>
                             <option value="firefox">Firefox</option>
                             <option value="webkit">WebKit (Safari)</option>
+                            <option value="brightdata">Bright Data (Cloud Rendering)</option>
                         </select>
-                        <span class="setting-help">Browser engine for JavaScript rendering</span>
+                        <span class="setting-help">Browser engine for JavaScript rendering. Bright Data uses cloud-based rendering — no local browser, handles Cloudflare automatically.</span>
+                    </div>
+
+                    <div class="setting-group" id="brightdataSettings" style="display: none;">
+                        <label for="brightdataApiKey">Bright Data API Key</label>
+                        <input type="password" id="brightdataApiKey" placeholder="Enter API key">
+                        <label for="brightdataZone" style="margin-top: 8px;">Zone Name</label>
+                        <input type="text" id="brightdataZone" value="web_unlocker1" placeholder="web_unlocker1">
+                        <span class="setting-help">$1.50 per 1000 pages. Get keys from brightdata.com/cp</span>
                     </div>
 
                     <div class="setting-group" id="jsHeadlessGroup" style="display: none;">
@@ -1328,6 +1353,7 @@
                 <div id="notion-progress-bar" style="width:0%; height:100%; background:#6a7a40; border-radius:4px; transition:width 0.3s ease;"></div>
             </div>
             <div id="notion-progress-text" style="font-size:12px; color:#6b7280; margin-top:4px;">0 / 0</div>
+            <button id="notion-cancel-btn" onclick="cancelNotionPush()" style="margin-top:10px; padding:6px 16px; background:#991b1b; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600;">Cancel Push</button>
         </div>
 
         <!-- Done state -->

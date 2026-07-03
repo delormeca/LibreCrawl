@@ -128,6 +128,10 @@ class SettingsManager:
             'jsViewportHeight': 1080,
             'jsMaxConcurrentPages': 3,
 
+            # Bright Data Web Unlocker settings
+            'brightdataApiKey': '',
+            'brightdataZone': 'web_unlocker1',
+
             # Stealth browser settings
             'stealthMode': False,
 
@@ -523,6 +527,8 @@ class SettingsManager:
             'js_viewport_width': settings['jsViewportWidth'],
             'js_viewport_height': settings['jsViewportHeight'],
             'js_max_concurrent_pages': settings['jsMaxConcurrentPages'],
+            'brightdata_api_key': settings.get('brightdataApiKey', ''),
+            'brightdata_zone': settings.get('brightdataZone', 'web_unlocker1'),
             'issue_exclusion_patterns': [p.strip() for p in settings['issueExclusionPatterns'].split('\n') if p.strip()],
             'enable_duplication_check': settings['enableDuplicationCheck'],
             'duplication_threshold': settings['duplicationThreshold'],
