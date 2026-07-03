@@ -918,7 +918,27 @@ function applyCustomCSS() {
 function toggleBrightDataSettings() {
     const browser = document.getElementById('jsBrowser');
     const bdSettings = document.getElementById('brightdataSettings');
-    if (browser && bdSettings) {
-        bdSettings.style.display = browser.value === 'brightdata' ? 'block' : 'none';
+    if (!browser || !bdSettings) return;
+
+    const isBD = browser.value === 'brightdata';
+    bdSettings.style.display = isBD ? 'block' : 'none';
+
+    if (isBD) {
+        // Disable conflicting settings — Bright Data handles everything
+        const stealthCheckbox = document.getElementById('stealthMode');
+        if (stealthCheckbox && stealthCheckbox.checked) {
+            stealthCheckbox.checked = false;
+            if (typeof currentSettings !== 'undefined') currentSettings.stealthMode = false;
+        }
+        const proxyCheckbox = document.getElementById('enableProxy');
+        if (proxyCheckbox && proxyCheckbox.checked) {
+            proxyCheckbox.checked = false;
+            if (typeof currentSettings !== 'undefined') currentSettings.enableProxy = false;
+        }
+        const strategySelect = document.getElementById('crawlStrategy');
+        if (strategySelect) {
+            strategySelect.value = 'smart';
+            if (typeof currentSettings !== 'undefined') currentSettings.crawlStrategy = 'smart';
+        }
     }
 }
