@@ -19,7 +19,7 @@ class CamoFoxRenderer:
         self._browser = None
         self._camoufox = None
         self._page_count = 0
-        self._max_pages_before_restart = 500
+        self._max_pages_before_restart = 200
 
     @staticmethod
     def _parse_proxy(proxy_url):
