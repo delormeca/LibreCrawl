@@ -59,6 +59,7 @@ let defaultSettings = {
     // Bright Data settings
     brightdataApiKey: '',
     brightdataZone: 'web_unlocker1',
+    brightdataAutoFallback: true,
 
     // Stealth browser settings
     stealthMode: false,
@@ -280,6 +281,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSettings();
     setupSettingsEventHandlers();
     applyCustomCSS();
+    renderProxyList();
 });
 
 function setupSettingsEventHandlers() {
@@ -502,7 +504,7 @@ function collectSettingsFromForm() {
         'exportFormat', 'concurrency', 'memoryLimit', 'logLevel', 'saveSession',
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
-        'brightdataApiKey', 'brightdataZone',
+        'brightdataApiKey', 'brightdataZone', 'brightdataAutoFallback',
         'customCSS', 'issueExclusionPatterns',
         'extractClaims'
     ];
@@ -560,6 +562,9 @@ function saveSettings() {
     // Close settings modal
     closeSettings();
     showNotification('Settings saved successfully', 'success');
+
+    // Update auto-detect button state based on new settings
+    if (typeof updateAutoDetectButton === 'function') updateAutoDetectButton();
 
     // Sync to backend for crawler configuration
     fetch('/api/save_settings', {
@@ -915,6 +920,28 @@ function applyCustomCSS() {
     }
 }
 
+function checkBrightDataBalance() {
+    const display = document.getElementById('brightdataBalanceDisplay');
+    const amount = document.getElementById('bdBalanceAmount');
+    if (!display || !amount) return;
+
+    display.style.display = 'block';
+    amount.textContent = 'Checking...';
+
+    fetch('/api/brightdata/balance')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.balance) {
+                amount.textContent = `$${data.balance.balance?.toFixed(2) || '?'} ${data.balance.currency || 'USD'}`;
+            } else {
+                amount.textContent = data.error || 'Could not fetch balance';
+            }
+        })
+        .catch(err => {
+            amount.textContent = 'Connection error';
+        });
+}
+
 function toggleBrightDataSettings() {
     const browser = document.getElementById('jsBrowser');
     const bdSettings = document.getElementById('brightdataSettings');
@@ -941,4 +968,118 @@ function toggleBrightDataSettings() {
             if (typeof currentSettings !== 'undefined') currentSettings.crawlStrategy = 'smart';
         }
     }
+
+    // Show balance if API key is set
+    if (isBD) {
+        const apiKey = document.getElementById('brightdataApiKey')?.value;
+        if (apiKey) {
+            checkBrightDataBalance();
+        }
+    }
+
+    if (typeof updateAutoDetectButton === 'function') updateAutoDetectButton();
+}
+
+// --- Proxy Manager ---
+function getSavedProxies() {
+    try {
+        return JSON.parse(localStorage.getItem('librecrawl_saved_proxies') || '[]');
+    } catch { return []; }
+}
+
+function saveSavedProxies(proxies) {
+    localStorage.setItem('librecrawl_saved_proxies', JSON.stringify(proxies));
+    renderProxyList();
+}
+
+function addProxy() {
+    const label = document.getElementById('newProxyLabel')?.value?.trim();
+    const url = document.getElementById('newProxyUrl')?.value?.trim();
+    if (!label || !url) { alert('Label and URL are required'); return; }
+
+    const proxies = getSavedProxies();
+    proxies.push({ label, url, lastTest: null, lastIp: null });
+    saveSavedProxies(proxies);
+
+    document.getElementById('newProxyLabel').value = '';
+    document.getElementById('newProxyUrl').value = '';
+}
+
+function removeProxy(index) {
+    const proxies = getSavedProxies();
+    proxies.splice(index, 1);
+    saveSavedProxies(proxies);
+}
+
+function testProxy(index) {
+    const proxies = getSavedProxies();
+    const proxy = proxies[index];
+    if (!proxy) return;
+
+    const btn = document.querySelector(`#proxy-test-${index}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Testing...'; }
+
+    fetch('/api/test_proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxyUrl: proxy.url })
+    })
+    .then(r => r.json())
+    .then(data => {
+        proxy.lastTest = new Date().toISOString();
+        if (data.success) {
+            proxy.lastIp = data.ip;
+            proxy.latency = data.latency_ms;
+            if (btn) { btn.textContent = `\u2713 ${data.ip} (${data.latency_ms}ms)`; btn.style.color = '#10b981'; }
+        } else {
+            proxy.lastIp = null;
+            if (btn) { btn.textContent = `\u2717 ${data.error}`; btn.style.color = '#ef4444'; }
+        }
+        saveSavedProxies(proxies);
+        setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = 'Test'; btn.style.color = ''; } }, 3000);
+    })
+    .catch(err => {
+        if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
+    });
+}
+
+function useProxy(index) {
+    const proxies = getSavedProxies();
+    const proxy = proxies[index];
+    if (!proxy) return;
+
+    document.getElementById('proxyUrl').value = proxy.url;
+    const enableProxy = document.getElementById('enableProxy');
+    if (enableProxy && !enableProxy.checked) {
+        enableProxy.checked = true;
+        const proxySettings = document.getElementById('proxySettings');
+        if (proxySettings) proxySettings.style.display = 'block';
+    }
+    if (typeof currentSettings !== 'undefined') {
+        currentSettings.enableProxy = true;
+        currentSettings.proxyUrl = proxy.url;
+    }
+    // Also save as stealth proxy for auto-detect
+    localStorage.setItem('librecrawl_stealth_proxy', proxy.url);
+}
+
+function renderProxyList() {
+    const container = document.getElementById('proxyListContainer');
+    if (!container) return;
+
+    const proxies = getSavedProxies();
+    if (proxies.length === 0) {
+        container.innerHTML = '<div style="color:#666;font-size:12px;padding:4px 0;">No saved proxies</div>';
+        return;
+    }
+
+    container.innerHTML = proxies.map((p, i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #333;font-size:12px;">
+            <strong style="min-width:80px;">${p.label}</strong>
+            <span style="flex:1;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.url}">${p.url.substring(0, 40)}...</span>
+            <button id="proxy-test-${i}" class="btn btn-outline-secondary btn-sm" onclick="testProxy(${i})" style="font-size:11px;padding:2px 8px;">Test</button>
+            <button class="btn btn-outline-primary btn-sm" onclick="useProxy(${i})" style="font-size:11px;padding:2px 8px;">Use</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="removeProxy(${i})" style="font-size:11px;padding:2px 8px;">\u2717</button>
+        </div>
+    `).join('');
 }

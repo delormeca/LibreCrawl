@@ -51,6 +51,24 @@ document.addEventListener('DOMContentLoaded', async function() {
     await initializeApp();
 });
 
+function updateAutoDetectButton() {
+    const btn = document.getElementById('autoConfigBtn');
+    if (!btn) return;
+
+    const browserSelect = document.getElementById('jsBrowser');
+    const isBrightData = browserSelect && browserSelect.value === 'brightdata';
+
+    if (isBrightData) {
+        btn.disabled = true;
+        btn.title = 'Using Bright Data — click Start to begin';
+        btn.style.opacity = '0.5';
+    } else {
+        btn.disabled = false;
+        btn.title = 'Auto-detect optimal settings then start crawling';
+        btn.style.opacity = '1';
+    }
+}
+
 async function initializeApp() {
     // Load plugins first (before tabs are initialized)
     if (window.LibreCrawlPlugin && window.LibreCrawlPlugin.loader) {
@@ -165,6 +183,9 @@ async function initializeApp() {
     // Set initial focus
     document.getElementById('urlInput').focus();
 
+    // Sync auto-detect button state with current settings
+    updateAutoDetectButton();
+
     console.log('LibreCrawl initialized');
 }
 
@@ -268,8 +289,175 @@ function startCrawl() {
         }
     }
 
+    // Cost approval for Bright Data
+    const browserSelect = document.getElementById('browserSelect');
+    const isBrightData = browserSelect && browserSelect.value === 'brightdata';
+    if (isBrightData) {
+        const maxUrls = parseInt(document.getElementById('maxUrls')?.value) || 500;
+        const estCost = (maxUrls * 0.0015).toFixed(2);
+        const proceed = confirm(
+            `This crawl will render up to ${maxUrls} pages via Bright Data (~$${estCost}).\n\n` +
+            `Cost: $1.50 per 1,000 pages.\n\nProceed?`
+        );
+        if (!proceed) {
+            crawlState.isRunning = false;
+            crawlState.isPaused = false;
+            updateCrawlButtons();
+            hideProgress();
+            updateStatus('Crawl cancelled');
+            return;
+        }
+    }
+
     // Start the actual crawling via Python backend
     startPythonCrawl(url);
+}
+
+function autoDetectAndCrawl() {
+    const urlInput = document.getElementById('urlInput');
+    let url = urlInput.value.trim();
+    if (!url) {
+        alert('Please enter a URL first');
+        urlInput.focus();
+        return;
+    }
+    url = normalizeUrl(url);
+    if (!isValidUrl(url)) {
+        alert('Please enter a valid URL or domain');
+        urlInput.focus();
+        return;
+    }
+    urlInput.value = url;
+
+    const btn = document.getElementById('autoConfigBtn');
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span style="animation:spin 1s linear infinite;display:inline-block">&#9881;</span> Detecting...';
+
+    updateStatus('Auto-detecting optimal settings...');
+
+    fetch('/api/auto_config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Detection failed: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = origText;
+            updateStatus('Detection failed');
+            return;
+        }
+
+        // Apply recommended settings
+        const rec = data.recommended;
+
+        // For blocked sites: use stealth proxy from localStorage (not from regular settings)
+        if (rec.enableProxy) {
+            const stealthProxy = localStorage.getItem('librecrawl_stealth_proxy') || '';
+            if (!stealthProxy) {
+                const proxyInput = prompt('This site is blocked (403) and requires a proxy.\n\nPaste your proxy URL (saved for future use):');
+                if (!proxyInput || !proxyInput.trim()) {
+                    btn.disabled = false;
+                    btn.innerHTML = origText;
+                    updateStatus('Proxy required for blocked sites');
+                    return;
+                }
+                localStorage.setItem('librecrawl_stealth_proxy', proxyInput.trim());
+                rec.proxyUrl = proxyInput.trim();
+            } else {
+                rec.proxyUrl = stealthProxy;
+            }
+        } else {
+            // Non-blocked site: ensure proxy is OFF
+            rec.enableProxy = false;
+            rec.proxyUrl = '';
+        }
+
+        // Apply Bright Data if recommended
+        if (rec.jsBrowser === 'brightdata') {
+            const maxUrls = parseInt(document.getElementById('maxUrls')?.value) || 500;
+            const estCost = (maxUrls * 0.0015).toFixed(2);
+            const proceed = confirm(
+                `Auto-detect recommends Bright Data for this blocked site.\n` +
+                `Estimated cost: ~$${estCost} for up to ${maxUrls} pages ($1.50/1000).\n\n` +
+                `Proceed with Bright Data?`
+            );
+            if (!proceed) {
+                btn.disabled = false;
+                btn.innerHTML = origText;
+                updateStatus('Cancelled — configure proxy manually for free alternative');
+                return;
+            }
+        }
+
+        fetch('/api/save_settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rec),
+        })
+        .then(() => {
+            // Set browser dropdown to match recommendation
+            if (rec.jsBrowser) {
+                const browserEl = document.getElementById('jsBrowser');
+                if (browserEl) {
+                    browserEl.value = rec.jsBrowser;
+                    browserEl.dispatchEvent(new Event('change'));
+                }
+            }
+
+            // Enable linkgraph mode by default (user can uncheck before clicking)
+            const lgEl = document.getElementById('linkgraphMode');
+            if (lgEl && !lgEl.checked) {
+                lgEl.checked = true;
+                if (typeof toggleLinkgraphMode === 'function') toggleLinkgraphMode(true);
+            }
+
+            // Enable claims extraction by default
+            if (typeof currentSettings !== 'undefined') {
+                currentSettings.extractClaims = true;
+                try { localStorage.setItem('librecrawl_settings', JSON.stringify(currentSettings)); } catch(e) {}
+            }
+
+            // Show detection result briefly
+            const jsLabel = rec.enableJavaScript ? 'JS rendering' : 'HTTP mode';
+            const msg = data.platform + ' detected — ' + jsLabel + '. ' + data.reasons.join('. ');
+            updateStatus(msg);
+
+            btn.disabled = false;
+            btn.innerHTML = origText;
+
+            // Auto-start the crawl
+            startCrawl();
+
+            // Reset proxy/brightdata in settings so regular Start doesn't inherit them
+            if (rec.enableProxy || rec.jsBrowser === 'brightdata') {
+                setTimeout(() => {
+                    const resetPayload = {};
+                    if (rec.enableProxy) {
+                        resetPayload.enableProxy = false;
+                        resetPayload.proxyUrl = '';
+                    }
+                    if (rec.jsBrowser === 'brightdata') {
+                        resetPayload.jsBrowser = 'chromium';
+                    }
+                    fetch('/api/save_settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(resetPayload),
+                    }).catch(() => {});
+                }, 2000);
+            }
+        });
+    })
+    .catch(err => {
+        alert('Detection error: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = origText;
+        updateStatus('Detection error');
+    });
 }
 
 function pauseCrawl() {
@@ -309,6 +497,28 @@ function stopCrawl() {
 
     // Stop Python crawler
     stopPythonCrawl();
+}
+
+function retryFailed() {
+    updateStatus('Retrying failed pages...');
+    fetch('/api/retry_failed', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                crawlState.isRunning = true;
+                updateCrawlButtons();
+                showProgress();
+                updateStatus(`Retrying ${data.retrying} failed pages...`);
+                // Remove retry button while retrying
+                const retryBtn = document.getElementById('retryFailedBtn');
+                if (retryBtn) retryBtn.remove();
+                // Start polling for progress
+                setTimeout(pollCrawlProgress, 1000);
+            } else {
+                updateStatus(data.error || 'Nothing to retry');
+            }
+        })
+        .catch(err => updateStatus('Retry request failed'));
 }
 
 function toggleExternalLinksWarning(checkbox) {
@@ -490,7 +700,39 @@ function pollCrawlProgress() {
                 } else {
                     const rate = speed > 0 ? speed.toFixed(2) : '—';
                     const sitemapNote = sitemapCount > 0 ? ` (${sitemapCount} from sitemap)` : '';
-                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec${sitemapNote}`);
+                    let costNote = '';
+                    if (data.brightdata_cost) {
+                        costNote = ` — BD: $${data.brightdata_cost.estimated_cost.toFixed(2)}`;
+                    }
+                    // ETA
+                    let etaNote = '';
+                    if (data.eta_seconds && data.eta_seconds > 0) {
+                        const mins = Math.floor(data.eta_seconds / 60);
+                        const secs = data.eta_seconds % 60;
+                        etaNote = ` — ETA ${mins}:${secs.toString().padStart(2, '0')}`;
+                    }
+                    // Errors
+                    let errorNote = '';
+                    if (data.error_counts) {
+                        const parts = [];
+                        if (data.error_counts.timeouts) parts.push(`${data.error_counts.timeouts} timeout`);
+                        if (data.error_counts.blocked) parts.push(`${data.error_counts.blocked} blocked`);
+                        if (parts.length) errorNote = ` — ${parts.join(', ')}`;
+                    }
+                    // Mode
+                    let modeNote = data.renderer_mode ? ` [${data.renderer_mode}]` : '';
+
+                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec${sitemapNote}${costNote}${etaNote}${errorNote}${modeNote}`);
+
+                    // Update log panel
+                    if (data.crawl_log) {
+                        updateLogPanel(data.crawl_log.filter(e => e.ts > lastLogTimestamp));
+                    }
+
+                    // Show retry progress if active
+                    if (data.retry_stats && data.retry_stats.total > 0) {
+                        updateStatus(`Retrying... ${data.retry_stats.retried}/${data.retry_stats.total} (${data.retry_stats.recovered} recovered)`);
+                    }
                 }
             }
 
@@ -594,6 +836,21 @@ function pollCrawlProgress() {
                 }
                 // Show claims extraction banner if enabled
                 showClaimsExtractionBanner();
+
+                // Show retry button if there are failed pages
+                const failedCount = (crawlState.urls || []).filter(u => u.status_code === 0).length;
+                let retryBtn = document.getElementById('retryFailedBtn');
+                if (failedCount > 0 && !retryBtn) {
+                    retryBtn = document.createElement('button');
+                    retryBtn.id = 'retryFailedBtn';
+                    retryBtn.className = 'btn btn-warning btn-sm ms-2';
+                    retryBtn.textContent = `Retry ${failedCount} Failed`;
+                    retryBtn.onclick = retryFailed;
+                    const statusArea = document.getElementById('statusText')?.parentElement;
+                    if (statusArea) statusArea.appendChild(retryBtn);
+                } else if (failedCount === 0 && retryBtn) {
+                    retryBtn.remove();
+                }
             }
         })
         .catch(error => {
@@ -2540,42 +2797,34 @@ async function saveCrawl() {
             return;
         }
 
-        // Get current crawl data from backend or use local state
-        let urls = crawlState.urls;
-        let links = crawlState.links;
-        let issues = crawlState.issues;
-        let stats = crawlState.stats;
+        // Use local state directly — fetching /api/crawl_status can fail on large
+        // crawls (response too large to parse), and local state already has all data.
+        const urls = crawlState.urls;
+        const links = crawlState.links;
+        const issues = crawlState.issues;
+        const stats = crawlState.stats;
 
-        // Try to get fresh data from backend if available
-        try {
-            const status = await fetch('/api/crawl_status');
-            const crawlData = await status.json();
-            if (crawlData.urls && crawlData.urls.length > 0) {
-                urls = crawlData.urls;
-                links = crawlData.links || links;
-                issues = crawlData.issues || issues;
-                // Update stats to include latest PageSpeed results if available
-                if (crawlData.stats) {
-                    stats = crawlData.stats;
-                }
-            }
-        } catch (e) {
-            console.log('Using local state for save:', e);
+        // Build JSON in chunks to avoid V8 RangeError on large crawls.
+        // Blob accepts an array of parts, so we never build one giant string.
+        const parts = [];
+        parts.push(`{"timestamp":${JSON.stringify(new Date().toISOString())},"baseUrl":${JSON.stringify(crawlState.baseUrl)},"stats":${JSON.stringify(stats)},"version":"1.2","urls":[`);
+        for (let i = 0; i < urls.length; i++) {
+            if (i > 0) parts.push(',');
+            parts.push(JSON.stringify(urls[i]));
         }
+        parts.push(`],"links":[`);
+        for (let i = 0; i < links.length; i++) {
+            if (i > 0) parts.push(',');
+            parts.push(JSON.stringify(links[i]));
+        }
+        parts.push(`],"issues":[`);
+        for (let i = 0; i < issues.length; i++) {
+            if (i > 0) parts.push(',');
+            parts.push(JSON.stringify(issues[i]));
+        }
+        parts.push(']}');
 
-        // Add metadata
-        const saveData = {
-            timestamp: new Date().toISOString(),
-            baseUrl: crawlState.baseUrl,
-            stats: stats,
-            urls: urls,
-            links: links,
-            issues: issues,
-            version: '1.1'
-        };
-
-        // Create and download the file
-        const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
+        const blob = new Blob(parts, { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -3532,7 +3781,8 @@ function openNotionModal() {
     document.getElementById('notion-progress').style.display = 'none';
     document.getElementById('notion-done').style.display = 'none';
 
-    fetch('/api/notion_config')
+    const configDomain = crawlState.baseUrl ? encodeURIComponent(new URL(crawlState.baseUrl).hostname) : '';
+    fetch('/api/notion_config?domain=' + configDomain)
         .then(r => r.json())
         .then(data => {
             notionConfig = data;
@@ -3583,7 +3833,7 @@ async function runNotionPush() {
         const resp = await fetch('/api/push_notion', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ notionDbUrl, includeClaims, includeEnrichment })
+            body: JSON.stringify({ notionDbUrl, includeClaims, includeEnrichment, baseUrl: crawlState.baseUrl })
         });
 
         const result = await resp.json();
@@ -3600,6 +3850,17 @@ async function runNotionPush() {
 
     } catch (err) {
         showNotionDone(false, 'Connection error: ' + err.message);
+    }
+}
+
+async function cancelNotionPush() {
+    if (!notionPushJobId) return;
+    try {
+        await fetch('/api/push_notion/cancel/' + notionPushJobId, { method: 'POST' });
+        if (notionPollInterval) { clearInterval(notionPollInterval); notionPollInterval = null; }
+        showNotionDone(false, 'Push cancelled by user');
+    } catch (e) {
+        console.error('Cancel failed:', e);
     }
 }
 
@@ -3681,4 +3942,57 @@ function showNotionDone(success, message) {
         msgEl.innerHTML = '<span style="color:#e74c3c;">&#10007;</span> Error — ' + message;
         openLink.style.display = 'none';
     }
+}
+
+// --- Live Crawl Log Panel ---
+let logPanelVisible = false;
+let lastLogTimestamp = 0;
+
+function toggleLogPanel() {
+    logPanelVisible = !logPanelVisible;
+    const panel = document.getElementById('crawlLogPanel');
+    if (panel) {
+        panel.style.display = logPanelVisible ? 'block' : 'none';
+    }
+    const btn = document.getElementById('toggleLogBtn');
+    if (btn) btn.textContent = logPanelVisible ? 'Hide Log' : 'Show Log';
+}
+
+function updateLogPanel(entries) {
+    if (!logPanelVisible || !entries || entries.length === 0) return;
+
+    const logBody = document.getElementById('crawlLogBody');
+    if (!logBody) return;
+
+    entries.forEach(entry => {
+        if (entry.ts > lastLogTimestamp) lastLogTimestamp = entry.ts;
+
+        const row = document.createElement('div');
+        row.className = 'log-entry';
+
+        // Color coding
+        let color = '#10b981'; // green for success
+        if (entry.status === 0) color = '#ef4444'; // red for timeout
+        else if (entry.status >= 400) color = '#f59e0b'; // yellow for errors
+
+        let path;
+        try {
+            path = new URL(entry.url).pathname || '/';
+        } catch (e) {
+            path = entry.url;
+        }
+        const statusText = entry.status === 0 ? 'TIMEOUT' : entry.status;
+        const errorText = entry.error ? ` — ${entry.error}` : '';
+
+        row.innerHTML = `<span style="color:${color}">${statusText}</span> ${path} <span style="color:#6b7280">(${entry.time}s)${errorText}</span>`;
+        logBody.appendChild(row);
+    });
+
+    // Keep only last 50 visible
+    while (logBody.children.length > 50) {
+        logBody.removeChild(logBody.firstChild);
+    }
+
+    // Auto-scroll
+    logBody.scrollTop = logBody.scrollHeight;
 }

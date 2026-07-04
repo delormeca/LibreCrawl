@@ -124,6 +124,19 @@ class SEOExtractor:
                 favor_precision=True,
             )
             text = (body or '').strip()
+
+            # Fallback: if precision mode found very little, retry with recall
+            if len(text) < 100:
+                body_recall = trafilatura.extract(
+                    cleaned_html,
+                    include_comments=False,
+                    include_tables=True,
+                    no_fallback=False,
+                    favor_recall=True,
+                )
+                if body_recall and len(body_recall.strip()) > len(text):
+                    text = body_recall.strip()
+
             text = unicodedata.normalize('NFKC', text)
             text = re.sub(r'\n{3,}', '\n\n', text)
             result['body_text'] = text

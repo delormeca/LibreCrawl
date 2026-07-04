@@ -115,6 +115,7 @@ class SettingsManager:
             'saveSession': True,
             'enableProxy': False,
             'proxyUrl': '',
+            'savedProxies': '[]',  # JSON array of {label, url, type}
             'customHeaders': '',
 
             # JavaScript rendering settings
@@ -514,6 +515,7 @@ class SettingsManager:
             'log_level': settings['logLevel'],
             'enable_proxy': settings['enableProxy'],
             'proxy_url': settings['proxyUrl'] if settings.get('proxyUrl') else None,
+            'saved_proxies': settings.get('savedProxies', '[]'),
             'custom_headers': self._parse_custom_headers(settings['customHeaders']),
             'discover_sitemaps': settings['discoverSitemaps'],
             'enable_pagespeed': settings['enablePageSpeed'],

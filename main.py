@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import time
 import csv
@@ -794,15 +795,40 @@ def auto_config():
         recommended['enableJavaScript'] = True
         result['reasons'].append(f'{result["platform"]} detected — JS rendering required')
 
+    # Check if Bright Data is available as fallback
+    settings_manager = get_session_settings()
+    user_settings = settings_manager.get_settings()
+    bd_api_key = user_settings.get('brightdataApiKey', '')
+    bd_available = bool(bd_api_key)
+    result['brightdataAvailable'] = bd_available
+
     # Apply protection-specific overrides (detection ran earlier, before recommended was built)
     protection = result.get('protection')
     if protection == 'challenge':
         recommended['crawlStrategy'] = 'smart'
         recommended['enableJavaScript'] = True
     elif protection == 'waf_block':
-        recommended['crawlStrategy'] = 'force_stealth'
-        recommended['enableProxy'] = True
-        recommended['enableJavaScript'] = True
+        if bd_available:
+            recommended['crawlStrategy'] = 'force_fast'
+            recommended['enableJavaScript'] = True
+            recommended['jsBrowser'] = 'brightdata'
+            recommended['enableProxy'] = False
+            result['reasons'].append('Bright Data recommended — bypasses WAF blocks without proxy')
+        else:
+            recommended['crawlStrategy'] = 'force_stealth'
+            recommended['enableProxy'] = True
+            recommended['enableJavaScript'] = True
+    elif protection == 'unknown_block':
+        if bd_available:
+            recommended['crawlStrategy'] = 'force_fast'
+            recommended['enableJavaScript'] = True
+            recommended['jsBrowser'] = 'brightdata'
+            recommended['enableProxy'] = False
+            result['reasons'].append('Bright Data recommended for blocked site')
+        else:
+            recommended['crawlStrategy'] = 'force_stealth'
+            recommended['enableProxy'] = True
+            recommended['enableJavaScript'] = True
 
     result['recommended'] = recommended
     result['success'] = True
@@ -2441,22 +2467,25 @@ def notion_config():
     import requests as http_requests
     from urllib.parse import urlparse
 
-    crawler = get_or_create_crawler()
-    domain = ''
+    # Prefer domain from frontend query param (always current), fall back to crawler state
+    domain = request.args.get('domain', '').strip()
 
-    if hasattr(crawler, 'base_url') and crawler.base_url:
-        try:
-            domain = urlparse(crawler.base_url).netloc
-        except Exception:
-            domain = crawler.base_url
+    if not domain:
+        crawler = get_or_create_crawler()
+        if hasattr(crawler, 'base_url') and crawler.base_url:
+            try:
+                domain = urlparse(crawler.base_url).netloc
+            except ValueError:
+                domain = crawler.base_url
 
     if not domain:
         try:
+            crawler = get_or_create_crawler()
             status = crawler.get_status()
             urls = status.get('urls', [])
             if urls and urls[0].get('url'):
                 domain = urlparse(urls[0]['url']).netloc
-        except Exception:
+        except (ValueError, Exception):
             pass
 
     if not domain:
@@ -2500,17 +2529,23 @@ def push_notion():
     if not urls:
         return jsonify({'error': 'No crawl data available'}), 400
 
-    # Extract domain
+    # Extract domain — prefer frontend-provided baseUrl (always matches displayed crawl)
     domain = ''
-    if hasattr(crawler, 'base_url') and crawler.base_url:
+    frontend_base = data.get('baseUrl', '')
+    if frontend_base:
+        try:
+            domain = urlparse(frontend_base).netloc
+        except ValueError:
+            domain = frontend_base
+    if not domain and hasattr(crawler, 'base_url') and crawler.base_url:
         try:
             domain = urlparse(crawler.base_url).netloc
-        except Exception:
+        except ValueError:
             domain = crawler.base_url
     if not domain and urls:
         try:
             domain = urlparse(urls[0].get('url', '')).netloc
-        except Exception:
+        except ValueError:
             pass
     if domain.startswith('www.'):
         domain = domain[4:]
@@ -2672,6 +2707,96 @@ def recover_crashed_crawls():
             print("=" * 60 + "\n")
     except Exception as e:
         print(f"Error during crash recovery: {e}")
+
+@app.route('/api/brightdata/balance', methods=['GET'])
+@login_required
+def brightdata_balance():
+    """Get Bright Data account balance and current crawl cost."""
+    settings_manager = get_session_settings()
+    settings = settings_manager.get_settings()
+    api_key = settings.get('brightdataApiKey', '')
+
+    if not api_key:
+        return jsonify({'success': False, 'error': 'No Bright Data API key configured'})
+
+    # Try to get balance from active crawler's renderer
+    crawler = get_or_create_crawler()
+    cost_stats = None
+    if hasattr(crawler, 'brightdata_renderer') and crawler.brightdata_renderer:
+        cost_stats = crawler.brightdata_renderer.get_cost_stats()
+
+    # Get account balance
+    from src.core.brightdata_renderer import BrightDataRenderer
+    temp = BrightDataRenderer(api_key, settings.get('brightdataZone', 'web_unlocker1'))
+    balance_info = temp.get_balance()
+
+    return jsonify({
+        'success': True,
+        'balance': balance_info,
+        'cost': cost_stats or {'pages_rendered': 0, 'estimated_cost': 0, 'cost_per_page': 0.0015}
+    })
+
+@app.route('/api/retry_failed', methods=['POST'])
+@login_required
+def retry_failed():
+    """Manually retry all failed pages (status 0)."""
+    crawler = get_or_create_crawler()
+    if crawler.is_running:
+        return jsonify({'success': False, 'error': 'Crawl is still running'})
+
+    failed_count = sum(1 for r in crawler.crawl_results if r.get('status_code', 0) == 0)
+    if failed_count == 0:
+        return jsonify({'success': False, 'error': 'No failed pages to retry'})
+
+    # Run retry in background thread
+    def run_retry():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        crawler.is_running = True
+        try:
+            loop.run_until_complete(crawler._retry_failed_pages())
+        finally:
+            crawler.is_running = False
+            loop.close()
+
+    threading.Thread(target=run_retry, daemon=True).start()
+    return jsonify({'success': True, 'retrying': failed_count})
+
+@app.route('/api/crawl_log')
+@login_required
+def crawl_log():
+    """Get last N crawl log entries."""
+    crawler = get_or_create_crawler()
+    since = request.args.get('since', type=float, default=0)
+    with crawler._crawl_log_lock:
+        entries = [e for e in crawler.crawl_log if e['ts'] > since]
+    return jsonify({'entries': entries[-50:]})
+
+@app.route('/api/test_proxy', methods=['POST'])
+@login_required
+def test_proxy():
+    """Test a proxy URL by making a request through it."""
+    import requests as http_requests
+
+    data = request.get_json() or {}
+    proxy_url = data.get('proxyUrl', '').strip()
+    if not proxy_url:
+        return jsonify({'success': False, 'error': 'No proxy URL provided'})
+
+    try:
+        resp = http_requests.get(
+            'https://httpbin.org/ip',
+            proxies={'http': proxy_url, 'https': proxy_url},
+            timeout=15,
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        if resp.status_code == 200:
+            ip_info = resp.json()
+            return jsonify({'success': True, 'ip': ip_info.get('origin', 'unknown'), 'latency_ms': int(resp.elapsed.total_seconds() * 1000)})
+        else:
+            return jsonify({'success': False, 'error': f'HTTP {resp.status_code}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 def graceful_shutdown(signum, frame):
     """Save all active crawls before shutdown"""

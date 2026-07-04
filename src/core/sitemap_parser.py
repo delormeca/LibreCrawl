@@ -7,11 +7,12 @@ from urllib.parse import urlparse
 class SitemapParser:
     """Discovers and parses sitemap.xml files"""
 
-    def __init__(self, session, base_domain, timeout=10, stealth_fetcher=None):
+    def __init__(self, session, base_domain, timeout=10, stealth_fetcher=None, brightdata_fetcher=None):
         self.session = session
         self.base_domain = base_domain
         self.timeout = timeout
         self.stealth_fetcher = stealth_fetcher
+        self.brightdata_fetcher = brightdata_fetcher
 
     def discover_sitemaps(self, base_url, extra_urls=None):
         """
@@ -166,7 +167,14 @@ class SitemapParser:
                 print(f"Error parsing sitemap {sitemap_url}: {e}")
 
     def _fetch(self, url):
-        """Fetch URL content. Uses stealth browser if available, otherwise HTTP session."""
+        """Fetch URL content. Tries: Bright Data -> stealth browser -> HTTP session."""
+        if self.brightdata_fetcher:
+            try:
+                content, status = self.brightdata_fetcher.fetch_url(url)
+                if status == 200 and content:
+                    return status, content
+            except Exception as e:
+                print(f"BrightData sitemap fetch failed for {url}: {e}")
         if self.stealth_fetcher:
             try:
                 content, status = self.stealth_fetcher(url)

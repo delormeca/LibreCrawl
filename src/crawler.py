@@ -83,6 +83,16 @@ class WebCrawler:
             'start_time': None
         }
 
+        # Error tracking
+        self.error_counts = {'timeouts': 0, 'blocked': 0, 'server_errors': 0}
+
+        # Crawl log ring buffer (last 100 entries)
+        self.crawl_log = []
+        self._crawl_log_lock = threading.Lock()
+
+        # Retry stats
+        self.retry_stats = None
+
         # Thread reference
         self.crawl_thread = None
 
@@ -228,7 +238,19 @@ class WebCrawler:
             if not url.startswith(('http://', 'https://')):
                 url = 'https://' + url
 
-            parsed = urlparse(url)
+            # Follow redirects to find the canonical base URL
+            try:
+                head_resp = self.session.head(url, allow_redirects=True, timeout=10)
+                if head_resp.url != url:
+                    print(f"URL redirected: {url} → {head_resp.url}")
+                    url = head_resp.url
+            except Exception as e:
+                print(f"HEAD request failed ({e}), using original URL")
+
+            try:
+                parsed = urlparse(url)
+            except ValueError:
+                return False, f"Invalid URL: {url}"
             self.base_url = f"{parsed.scheme}://{parsed.netloc}"
             self.base_domain = parsed.netloc
 
@@ -289,6 +311,15 @@ class WebCrawler:
             if self.config.get('stealth_mode', False) and self.config.get('js_browser', 'chromium').lower() != 'brightdata':
                 from src.core.camoufox_renderer import CamoFoxRenderer
                 self.sitemap_parser.stealth_fetcher = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+
+            # When using Bright Data, route sitemap fetches through BD to bypass Cloudflare
+            if self.config.get('js_browser', 'chromium').lower() == 'brightdata':
+                bd_api_key = self.config.get('brightdata_api_key', '')
+                bd_zone = self.config.get('brightdata_zone', 'web_unlocker1')
+                if bd_api_key:
+                    from src.core.brightdata_renderer import BrightDataRenderer
+                    self.sitemap_parser.brightdata_fetcher = BrightDataRenderer(bd_api_key, bd_zone)
+                    print("Sitemap fetching will use Bright Data (bypasses Cloudflare)")
 
             # Reset state
             self._reset_state()
@@ -595,6 +626,12 @@ class WebCrawler:
 
         print(f"get_status called - crawl_results length: {len(self.crawl_results)}, status: {status}, crawled: {self.stats['crawled']}")
 
+        # Calculate ETA
+        eta_seconds = None
+        if self.stats.get('speed', 0) > 0 and link_stats['discovered'] > self.stats['crawled']:
+            remaining = link_stats['discovered'] - self.stats['crawled']
+            eta_seconds = int(remaining / self.stats['speed'])
+
         return {
             'status': status,
             'stats': {
@@ -612,7 +649,114 @@ class WebCrawler:
             'demo_stopped': self._demo_limit_reached,
             'demo_mode': self.config.get('demo_mode', False),
             'crawl_strategy': self.strategy.get_stats() if hasattr(self, 'strategy') else {'mode': 'FAST', 'strategy': 'smart', 'stealth_retries': 0, 'fast_successes': 0, 'consecutive_blocks': 0, 'concurrency': self.config.get('js_max_concurrent_pages', 3), 'total_pages': 0},
+            'retry_stats': self.retry_stats,
+            'brightdata_cost': self.brightdata_renderer.get_cost_stats() if hasattr(self, 'brightdata_renderer') and self.brightdata_renderer else None,
+            'error_counts': self.error_counts,
+            'eta_seconds': eta_seconds,
+            'renderer_mode': 'Bright Data' if (hasattr(self, 'brightdata_renderer') and self.brightdata_renderer) else ('CamoFox' if self.camoufox_renderer else 'Chromium'),
+            'crawl_log': self.crawl_log[-50:],
         }
+
+    def _log_crawl_entry(self, url, status_code, elapsed_secs, error=None):
+        """Add entry to crawl log ring buffer."""
+        entry = {
+            'url': url,
+            'status': status_code,
+            'time': round(elapsed_secs, 1),
+            'ts': time.time(),
+            'error': error
+        }
+        with self._crawl_log_lock:
+            self.crawl_log.append(entry)
+            if len(self.crawl_log) > 100:
+                self.crawl_log = self.crawl_log[-100:]
+
+    def _track_error_counts(self, status_code):
+        """Increment error counters based on status code."""
+        if status_code == 0:
+            self.error_counts['timeouts'] += 1
+        elif status_code in (403, 503):
+            self.error_counts['blocked'] += 1
+        elif status_code >= 500:
+            self.error_counts['server_errors'] += 1
+
+    async def _retry_failed_pages(self):
+        """Retry pages that failed with status 0 (timeout/error) using extended timeout."""
+        failed_urls = [r['url'] for r in self.crawl_results if r.get('status_code', 0) == 0]
+        if not failed_urls:
+            return
+
+        print(f"Retrying {len(failed_urls)} failed pages with extended timeout...")
+        self.retry_stats = {'total': len(failed_urls), 'retried': 0, 'recovered': 0}
+
+        # Determine which renderer to use for retries
+        renderer = None
+        renderer_started = False
+        try:
+            if hasattr(self, 'brightdata_renderer') and self.brightdata_renderer:
+                renderer = self.brightdata_renderer
+            elif self.camoufox_renderer:
+                renderer = self.camoufox_renderer
+            else:
+                # Start a CamoFox renderer for retries
+                from src.core.camoufox_renderer import CamoFoxRenderer
+                renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                await renderer.start()
+                renderer_started = True
+
+            for url in failed_urls:
+                if not self.is_running:
+                    break
+
+                self.retry_stats['retried'] += 1
+                try:
+                    html_content, status_code = await renderer.render_page(
+                        url, timeout=90)
+                    if status_code == 200 and html_content:
+                        # Update the result in place
+                        for r in self.crawl_results:
+                            if r.get('url') == url:
+                                soup = BeautifulSoup(html_content, 'html.parser')
+                                r['status_code'] = status_code
+                                r['size'] = len(html_content.encode('utf-8'))
+                                r['_raw_html'] = html_content
+                                r['javascript_rendered'] = True
+                                self.seo_extractor.extract_basic_seo_data(soup, r)
+                                self.seo_extractor.extract_body_text(html_content, r)
+                                self.seo_extractor.extract_meta_tags(soup, r)
+                                self.seo_extractor.extract_link_counts(soup, r, self.base_domain)
+                                r['retried'] = True
+                                self.retry_stats['recovered'] += 1
+                                print(f"Retry SUCCESS: {url} -> {status_code}")
+                                break
+                    else:
+                        # Update with descriptive error
+                        for r in self.crawl_results:
+                            if r.get('url') == url:
+                                if status_code == 502:
+                                    r['error'] = 'Bad Gateway (502)'
+                                elif status_code == 0:
+                                    r['error'] = 'Timeout on retry'
+                                else:
+                                    r['error'] = f'HTTP {status_code} on retry'
+                                r['retried'] = True
+                                break
+                except Exception as e:
+                    print(f"Retry error for {url}: {e}")
+                    for r in self.crawl_results:
+                        if r.get('url') == url:
+                            r['error'] = str(e)
+                            r['retried'] = True
+                            break
+        finally:
+            # Clean up renderer if we started one
+            if renderer_started and renderer:
+                try:
+                    await renderer.stop()
+                except Exception:
+                    pass
+
+        print(f"Retry complete: {self.retry_stats['recovered']}/{self.retry_stats['total']} recovered")
 
     def _save_batch_to_db(self, force=False):
         """Save batched data to database"""
@@ -824,6 +968,13 @@ class WebCrawler:
                                         self.stats['depth'] = max(self.stats['depth'], result.get('depth', 0))
                                         print(f"Added URL to results: {result['url']} - Total in results: {len(self.crawl_results)}")
 
+                                    # Track errors and log entry
+                                    sc = result.get('status_code', 0)
+                                    self._track_error_counts(sc)
+                                    elapsed_s = result.get('response_time', 0) / 1000
+                                    err_msg = result.get('error') if sc == 0 else None
+                                    self._log_crawl_entry(result['url'], sc, elapsed_s, error=err_msg)
+
                                     # Track per-user memory
                                     self.user_memory.track_url(result)
 
@@ -888,6 +1039,10 @@ class WebCrawler:
                 duplication_threshold = self.config.get('duplication_threshold', 0.85)
                 self.issue_detector.detect_duplication_issues(self.crawl_results, duplication_threshold)
                 print(f"Duplication detection complete. Total issues: {len(self.issue_detector.get_issues())}")
+
+        # Retry failed pages before finalizing
+        if not self._demo_limit_reached:
+            asyncio.run(self._retry_failed_pages())
 
         # Save final data and set appropriate status
         if self.db_save_enabled and self.crawl_id:
@@ -1444,6 +1599,13 @@ class WebCrawler:
                                     self.stats['depth'] = max(self.stats['depth'], result.get('depth', 0))
                                     print(f"Added URL to results (JS): {result['url']} - Total in results: {len(self.crawl_results)}")
 
+                                # Track errors and log entry
+                                sc = result.get('status_code', 0)
+                                self._track_error_counts(sc)
+                                elapsed_s = result.get('response_time', 0) / 1000
+                                err_msg = result.get('error') if sc == 0 else None
+                                self._log_crawl_entry(result['url'], sc, elapsed_s, error=err_msg)
+
                                 # Track per-user memory
                                 self.user_memory.track_url(result)
 
@@ -1495,6 +1657,9 @@ class WebCrawler:
                     duplication_threshold = self.config.get('duplication_threshold', 0.85)
                     self.issue_detector.detect_duplication_issues(self.crawl_results, duplication_threshold)
                     print(f"Duplication detection complete. Total issues: {len(self.issue_detector.get_issues())}")
+
+                # Retry failed pages before finalizing
+                await self._retry_failed_pages()
 
             # Save final data and set appropriate status
             if self.db_save_enabled and self.crawl_id:

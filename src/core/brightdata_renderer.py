@@ -16,6 +16,8 @@ class BrightDataRenderer:
         self.zone = zone
         self.endpoint = "https://api.brightdata.com/request"
         self._executor = ThreadPoolExecutor(max_workers=10)
+        self.pages_rendered = 0
+        self.cost_per_page = 0.0015  # $1.50 per 1000 pages
 
     async def start(self):
         """No-op. No browser to launch."""
@@ -53,6 +55,7 @@ class BrightDataRenderer:
             )
 
             if resp.status_code == 200:
+                self.pages_rendered += 1
                 return resp.text, 200
             else:
                 print(f"BrightData error for {url}: HTTP {resp.status_code}")
@@ -64,3 +67,57 @@ class BrightDataRenderer:
         except Exception as e:
             print(f"BrightData error for {url}: {e}")
             return "", 0
+
+    def fetch_url(self, url, timeout=30):
+        """
+        Fetch a URL through Bright Data without JS rendering.
+        Useful for sitemaps and robots.txt on protected sites.
+        Returns (content_bytes, status_code).
+        """
+        try:
+            resp = http_requests.post(
+                self.endpoint,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                },
+                json={
+                    "zone": self.zone,
+                    "url": url,
+                    "format": "raw",
+                    "render": False
+                },
+                timeout=timeout + 15
+            )
+            content = resp.content
+            return content, resp.status_code
+        except http_requests.Timeout:
+            print(f"BrightData fetch timeout for {url}")
+            return b"", 0
+        except Exception as e:
+            print(f"BrightData fetch error for {url}: {e}")
+            return b"", 0
+
+    def get_balance(self):
+        """Query Bright Data account balance."""
+        try:
+            resp = http_requests.get(
+                "https://api.brightdata.com/zone/cost",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                params={"zone": self.zone},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"balance": data.get("balance", 0), "currency": data.get("currency", "USD")}
+        except Exception as e:
+            print(f"BrightData balance check failed: {e}")
+        return None
+
+    def get_cost_stats(self):
+        """Return current crawl cost statistics."""
+        return {
+            "pages_rendered": self.pages_rendered,
+            "estimated_cost": round(self.pages_rendered * self.cost_per_page, 4),
+            "cost_per_page": self.cost_per_page
+        }
