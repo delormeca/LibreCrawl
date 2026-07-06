@@ -54,12 +54,21 @@ class BrightDataRenderer:
                 timeout=max(timeout, 60) + 15
             )
 
-            if resp.status_code == 200:
+            # Bright Data returns the original page status code directly.
+            # When the API itself fails (auth, quota), status is 4xx/5xx from BD.
+            # When it succeeds, the status IS the target page's status (200, 404, etc.)
+            status_code = resp.status_code
+            content = resp.text
+
+            # BD sometimes returns 200 with empty or near-empty body
+            # (challenge solved but page didn't render). Treat as timeout.
+            if status_code == 200 and len(content.strip()) < 100:
+                print(f"BrightData empty response for {url} ({len(content)} chars)")
+                return "", 0
+
+            if status_code == 200:
                 self.pages_rendered += 1
-                return resp.text, 200
-            else:
-                print(f"BrightData error for {url}: HTTP {resp.status_code}")
-                return resp.text, resp.status_code
+            return content, status_code
 
         except http_requests.Timeout:
             print(f"BrightData timeout for {url}")
