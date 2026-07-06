@@ -261,6 +261,11 @@ function startCrawl() {
     showProgress();
     updateStatus('Starting crawl...');
 
+    // Clear auto-detect badge if this is a manual start (not via auto-detect)
+    const badge = document.getElementById('autoDetectBadge');
+    if (badge && !badge._keepForAutoDetect) badge.style.display = 'none';
+    if (badge) badge._keepForAutoDetect = false;
+
     // Clear previous data
     clearAllTables();
     resetStats();
@@ -421,10 +426,19 @@ function autoDetectAndCrawl() {
                 try { localStorage.setItem('librecrawl_settings', JSON.stringify(currentSettings)); } catch(e) {}
             }
 
-            // Show detection result briefly
+            // Show detection result in status + persistent badge
             const jsLabel = rec.enableJavaScript ? 'JS rendering' : 'HTTP mode';
+            const renderer = rec.jsBrowser === 'brightdata' ? 'Bright Data' : (rec.crawlStrategy === 'force_stealth' ? 'CamoFox' : 'Chromium');
             const msg = data.platform + ' detected — ' + jsLabel + '. ' + data.reasons.join('. ');
             updateStatus(msg);
+
+            // Persistent badge visible during crawl
+            const badge = document.getElementById('autoDetectBadge');
+            if (badge) {
+                badge.textContent = `${data.platform} · ${renderer} · ${jsLabel}`;
+                badge.style.display = 'inline';
+                badge._keepForAutoDetect = true;
+            }
 
             btn.disabled = false;
             btn.innerHTML = origText;
@@ -722,7 +736,13 @@ function pollCrawlProgress() {
                     // Mode
                     let modeNote = data.renderer_mode ? ` [${data.renderer_mode}]` : '';
 
-                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec${sitemapNote}${costNote}${etaNote}${errorNote}${modeNote}`);
+                    // Rate limit warning
+                    let rateLimitNote = '';
+                    if (data.rate_limit && data.rate_limit.backoff_level > 0) {
+                        rateLimitNote = ` ⚠ Rate limited — 1 req/${data.rate_limit.current_delay}s`;
+                    }
+
+                    updateStatus(`Crawling... ${crawled}/${discovered} URLs — ${rate} URLs/sec${sitemapNote}${costNote}${etaNote}${errorNote}${rateLimitNote}${modeNote}`);
 
                     // Update log panel
                     if (data.crawl_log) {
@@ -816,6 +836,10 @@ function pollCrawlProgress() {
                 crawlState.isLoading = false;
                 stopCrawl();
                 updateStatus('Crawl completed');
+                // Update assets table on completion
+                if (data.assets && data.assets.length > 0) {
+                    updateAssetsTable(data.assets);
+                }
                 // Update visualization one final time when crawl completes
                 if (typeof loadVisualizationData === 'function') {
                     loadVisualizationData();
@@ -1019,6 +1043,14 @@ function updateStatsDisplay() {
     document.getElementById('crawledCount').textContent = crawlState.stats.crawled;
     document.getElementById('crawlDepth').textContent = crawlState.stats.depth;
     document.getElementById('crawlSpeed').textContent = crawlState.stats.speed + ' URLs/sec';
+
+    // Show JS-discovered count only when > 0
+    const jsCount = crawlState.stats.js_discovered || 0;
+    const jsEl = document.getElementById('jsDiscoveredStat');
+    if (jsEl) {
+        jsEl.style.display = jsCount > 0 ? '' : 'none';
+        document.getElementById('jsDiscoveredCount').textContent = jsCount;
+    }
 }
 
 function updateMemoryDisplay(memoryData, memoryDataSizes) {
@@ -3439,6 +3471,34 @@ function checkSettingsOpenAIKey() {
         }
     }).catch(() => {});
 }
+// Assets tab rendering
+function updateAssetsTable(assets) {
+    const tbody = document.getElementById('assetsTableBody');
+    const emptyMsg = document.getElementById('assetsEmpty');
+    if (!tbody) return;
+
+    if (!assets || assets.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyMsg) emptyMsg.style.display = '';
+        return;
+    }
+    if (emptyMsg) emptyMsg.style.display = 'none';
+
+    tbody.innerHTML = assets.map(a => {
+        const sizeStr = a.size ? (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + ' MB' : (a.size / 1024).toFixed(1) + ' KB') : '—';
+        const statusClass = a.status === 200 ? 'color:#10b981' : (a.status === 0 ? 'color:#ef4444' : 'color:#f59e0b');
+        const linkedCount = a.linked_from ? a.linked_from.length : 0;
+        return `<tr>
+            <td title="${a.url}" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.url}</td>
+            <td>${a.type || '—'}</td>
+            <td style="${statusClass}">${a.status || '—'}</td>
+            <td>${sizeStr}</td>
+            <td>${a.content_type || '—'}</td>
+            <td>${linkedCount} page${linkedCount !== 1 ? 's' : ''}</td>
+        </tr>`;
+    }).join('');
+}
+
 document.addEventListener('DOMContentLoaded', checkSettingsOpenAIKey);
 
 function saveOpenAIKey() {

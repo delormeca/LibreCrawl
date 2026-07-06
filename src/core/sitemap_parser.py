@@ -73,7 +73,7 @@ class SitemapParser:
             original_fetch = self._fetch
             async def async_fetch(url):
                 try:
-                    content, status = await renderer.render_page(url, wait_time=1, timeout=15)
+                    content, status, *_ = await renderer.render_page(url, wait_time=1, timeout=15)
                     if status == 200 and content:
                         return status, content.encode('utf-8') if isinstance(content, str) else content
                 except Exception as e:

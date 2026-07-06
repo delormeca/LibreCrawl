@@ -89,6 +89,7 @@
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
                 <span class="progress-text" id="progressText">Initializing...</span>
+                <span id="autoDetectBadge" style="display: none; margin-left: 12px; font-size: 12px; padding: 2px 10px; border-radius: 12px; background: rgba(106,122,64,0.2); border: 1px solid #6a7a40; vertical-align: middle;"></span>
                 <span id="crawlModeIndicator" style="display: none; margin-left: 12px; font-size: 13px; vertical-align: middle;">
                     <span id="crawlModeDot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle;"></span>
                     <span id="crawlModeLabel" style="font-weight: 500;">SMART</span>
@@ -185,6 +186,10 @@
                             <span class="stat-label">Speed</span>
                             <span class="stat-value" id="crawlSpeed">0 URLs/sec</span>
                         </div>
+                        <div class="stat-item" id="jsDiscoveredStat" style="display:none">
+                            <span class="stat-label">JS Discovered</span>
+                            <span class="stat-value" id="jsDiscoveredCount">0</span>
+                        </div>
                     </div>
                 </div>
 
@@ -222,6 +227,7 @@
                         <button class="tab-btn" onclick="switchTab('links')">Links</button>
                         <button class="tab-btn" onclick="switchTab('issues')">Issues</button>
                         <button class="tab-btn" onclick="switchTab('content')">Content</button>
+                        <button class="tab-btn" onclick="switchTab('assets')">Assets</button>
                         <button class="tab-btn" onclick="switchTab('pagespeed')">PageSpeed</button>
                         <button class="tab-btn" onclick="switchTab('visualization')">Visualization</button>
                         <button class="tab-btn" id="embeddingsTabBtn" onclick="switchTab('embeddings')" style="display:none;">Embeddings</button>
@@ -516,6 +522,26 @@
                             </div>
                         </div>
 
+                        <div id="assets-tab" class="tab-pane">
+                            <div id="assetsTableContainer">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>URL</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Size</th>
+                                            <th>Content-Type</th>
+                                            <th>Linked From</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="assetsTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p id="assetsEmpty" style="text-align:center; color:#888; padding:40px;">No non-HTML assets discovered yet.</p>
+                        </div>
+
                         <div id="pagespeed-tab" class="tab-pane">
                             <div class="pagespeed-container">
                                 <div class="pagespeed-header">
@@ -665,6 +691,7 @@
                     <button class="settings-tab-btn" onclick="switchSettingsTab('export')">Export</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('javascript')">JavaScript</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('stealth')">Stealth</button>
+                    <button class="settings-tab-btn" onclick="switchSettingsTab('auth')">Auth</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('issues')">Issue Exclusion</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('customcss')">Custom CSS</button>
                     <button class="settings-tab-btn" onclick="switchSettingsTab('advanced')">Advanced</button>
@@ -754,6 +781,14 @@
                         <span id="crawlExternalLinksWarning" style="display:none; color:#d97706; font-size:0.8rem; margin-top:4px;">
                             ⚠ External domains will be crawled — this increases crawl time and cost
                         </span>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="includeSubdomains">
+                            Include Subdomains
+                        </label>
+                        <span class="setting-help">Treat subdomains (e.g. blog.example.com) as internal when crawling www.example.com</span>
                     </div>
                 </div>
 
@@ -1087,6 +1122,24 @@
                         <span class="setting-help">Number of browser pages for parallel JavaScript rendering (higher = faster but more memory)</span>
                     </div>
 
+                    <div class="setting-group" id="jsScrollGroup" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="enableScrollBeforeExtract"> Scroll pages before extraction
+                        </label>
+                        <span class="setting-help">Auto-scroll to bottom to trigger lazy-loaded content (adds ~5s per page)</span>
+                    </div>
+
+                    <div class="setting-group" id="jsPaginationGroup" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="enablePaginationDiscovery"> Enable JS Pagination Discovery
+                        </label>
+                        <span class="setting-help">Auto-detect and click "Next" / "Load More" buttons to discover paginated content</span>
+                        <div style="margin-top: 8px;">
+                            <label for="paginationMaxPages">Max pages to click through</label>
+                            <input type="number" id="paginationMaxPages" value="50" min="1" max="500" style="width: 80px;">
+                        </div>
+                    </div>
+
                     <div class="setting-group" id="jsWarning" style="display: none;">
                         <div style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 12px; color: #fbbf24;">
                             <strong>⚠️ Performance Impact</strong><br>
@@ -1120,6 +1173,47 @@
                     <div id="strategyProxyNotice" class="setting-group" style="padding: 10px; border-left: 3px solid #6a7a40; background: rgba(106,122,64,0.1); margin-top: 10px;">
                         <strong>Proxy:</strong> <span id="strategyProxyStatus">Not configured</span><br>
                         <span class="setting-help">Set in Advanced tab. Used automatically when stealth is needed.</span>
+                    </div>
+                </div>
+
+                <!-- Authentication Settings -->
+                <div id="auth-settings" class="settings-tab-content">
+                    <h3>Authentication</h3>
+                    <p class="setting-help" style="margin-bottom: 15px;">Crawl sites behind login walls. Either provide login credentials or a raw cookie string.</p>
+
+                    <div class="setting-group">
+                        <label for="authLoginUrl">Login URL</label>
+                        <span class="setting-help">The page with the login form</span>
+                        <input type="text" id="authLoginUrl" placeholder="https://example.com/login">
+                    </div>
+                    <div class="setting-group">
+                        <label for="authUsername">Username</label>
+                        <input type="text" id="authUsername" placeholder="user@example.com">
+                    </div>
+                    <div class="setting-group">
+                        <label for="authPassword">Password</label>
+                        <input type="password" id="authPassword" placeholder="••••••••">
+                    </div>
+                    <div class="setting-group">
+                        <label for="authUsernameSelector">Username field selector</label>
+                        <span class="setting-help">CSS selector for the username/email input</span>
+                        <input type="text" id="authUsernameSelector" placeholder='input[name="username"], input[type="email"]'>
+                    </div>
+                    <div class="setting-group">
+                        <label for="authPasswordSelector">Password field selector</label>
+                        <span class="setting-help">CSS selector for the password input</span>
+                        <input type="text" id="authPasswordSelector" placeholder='input[name="password"], input[type="password"]'>
+                    </div>
+                    <div class="setting-group">
+                        <label for="authSubmitSelector">Submit button selector</label>
+                        <span class="setting-help">CSS selector for the login submit button</span>
+                        <input type="text" id="authSubmitSelector" placeholder='button[type="submit"]'>
+                    </div>
+                    <hr style="border-color: #333; margin: 20px 0;">
+                    <div class="setting-group">
+                        <label for="authCookies">OR: Raw cookie string</label>
+                        <span class="setting-help">Paste cookies from browser DevTools (semicolon-separated). Overrides form login if set.</span>
+                        <textarea id="authCookies" rows="3" placeholder="session_id=abc123; csrf_token=xyz789"></textarea>
                     </div>
                 </div>
 

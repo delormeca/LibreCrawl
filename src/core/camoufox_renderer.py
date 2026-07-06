@@ -14,8 +14,19 @@ from urllib.parse import urlparse
 class CamoFoxRenderer:
     """Renders pages using CamoFox — a Firefox fork with C++-level anti-detection."""
 
-    def __init__(self, proxy_url=None):
+    _SCROLL_SCRIPT = """async () => {
+        let lastHeight = 0;
+        for (let i = 0; i < 10; i++) {
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 500));
+            if (document.body.scrollHeight === lastHeight) break;
+            lastHeight = document.body.scrollHeight;
+        }
+    }"""
+
+    def __init__(self, proxy_url=None, enable_scroll=False):
         self.proxy = self._parse_proxy(proxy_url) if proxy_url else None
+        self.enable_scroll = enable_scroll
         self._browser = None
         self._camoufox = None
         self._page_count = 0
@@ -58,6 +69,12 @@ class CamoFoxRenderer:
             self._browser = None
             self._camoufox = None
 
+    async def set_auth_cookies(self, cookies):
+        """Add authentication cookies to the persistent browser context."""
+        if self._browser:
+            await self._browser.add_cookies(cookies)
+            print(f"Auth cookies applied to CamoFox context ({len(cookies)} cookies)")
+
     async def render_page(self, url, wait_time=3, timeout=30):
         """Render a page. Uses persistent browser if started, otherwise one-shot."""
         if self._browser:
@@ -67,12 +84,12 @@ class CamoFoxRenderer:
                 print(f"CamoFox: restarting browser after {self._page_count} pages (memory cleanup)")
                 await self.stop()
                 await self.start()
-            return await self._render_with_browser(self._browser, url, wait_time, timeout)
+            return await self._render_with_browser(self._browser, url, wait_time, timeout, enable_scroll=self.enable_scroll)
 
         # One-shot: launch and kill per page (for sync fallback path)
         from camoufox.async_api import AsyncCamoufox
         async with AsyncCamoufox(**self._launch_opts()) as browser:
-            return await self._render_with_browser(browser, url, wait_time, timeout)
+            return await self._render_with_browser(browser, url, wait_time, timeout, enable_scroll=self.enable_scroll)
 
     # Resource types that waste bandwidth without adding SEO value
     _BLOCKED_TYPES = {'image', 'media', 'font'}
@@ -142,10 +159,28 @@ class CamoFoxRenderer:
                 continue
 
     @staticmethod
-    async def _render_with_browser(browser, url, wait_time, timeout, retries=2):
+    async def _render_with_browser(browser, url, wait_time, timeout, retries=2, enable_scroll=False):
         last_error = None
         for attempt in range(retries + 1):
             page = await browser.new_page()
+            redirect_chain = []
+
+            # Capture redirect responses before browser follows them
+            def on_response(response):
+                try:
+                    if response.status in (301, 302, 303, 307, 308):
+                        location = response.headers.get('location', '')
+                        if location:
+                            redirect_chain.append({
+                                'from': response.url,
+                                'to': location,
+                                'status': response.status
+                            })
+                except Exception:
+                    pass
+
+            page.on('response', on_response)
+
             try:
                 # No route interception on first load — page.route() triggers
                 # Cloudflare/Vercel bot detection on datacenter IPs
@@ -173,7 +208,7 @@ class CamoFoxRenderer:
                         print(f"CamoFox: challenge NOT resolved for {url} (still: {new_title})")
                         content = await page.content()
                         status = response.status if response else 403
-                        return content, status
+                        return content, status, redirect_chain
                     else:
                         print(f"CamoFox: challenge SOLVED for {url} (now: {new_title})")
                 else:
@@ -181,9 +216,17 @@ class CamoFoxRenderer:
                     await page.wait_for_timeout(wait_time * 1000)
 
                 await CamoFoxRenderer._dismiss_cookie_banner(page)
+
+                # Scroll to bottom to trigger lazy-loaded content
+                if enable_scroll:
+                    try:
+                        await page.evaluate(CamoFoxRenderer._SCROLL_SCRIPT)
+                    except Exception:
+                        pass
+
                 content = await page.content()
                 status = response.status if response else 200
-                return content, status
+                return content, status, redirect_chain
             except Exception as e:
                 last_error = e
                 if attempt < retries:

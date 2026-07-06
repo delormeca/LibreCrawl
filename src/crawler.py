@@ -354,7 +354,7 @@ class WebCrawler:
             requests_per_second = 100.0
 
         self.rate_limiter = RateLimiter(requests_per_second)
-        self.link_manager = LinkManager(self.base_domain)
+        self.link_manager = LinkManager(self.base_domain, include_subdomains=self.config.get('include_subdomains', False))
         self.sitemap_parser = SitemapParser(self.session, self.base_domain, self.config['timeout'])
         self.issue_detector = IssueDetector(self.config.get('issue_exclusion_patterns', []))
 
@@ -655,6 +655,8 @@ class WebCrawler:
             'eta_seconds': eta_seconds,
             'renderer_mode': 'Bright Data' if (hasattr(self, 'brightdata_renderer') and self.brightdata_renderer) else ('CamoFox' if self.camoufox_renderer else 'Chromium'),
             'crawl_log': self.crawl_log[-50:],
+            'rate_limit': self.rate_limiter.get_backoff_stats() if self.rate_limiter else None,
+            'assets': self.link_manager.get_assets() if self.link_manager else [],
         }
 
     def _log_crawl_entry(self, url, status_code, elapsed_secs, error=None):
@@ -710,7 +712,7 @@ class WebCrawler:
 
                 self.retry_stats['retried'] += 1
                 try:
-                    html_content, status_code = await renderer.render_page(
+                    html_content, status_code, *_ = await renderer.render_page(
                         url, timeout=90)
                     if status_code == 200 and html_content:
                         # Update the result in place
@@ -894,8 +896,113 @@ class WebCrawler:
         """Set user-provided sitemap URLs to seed during discovery."""
         self._user_sitemap_urls = urls or []
 
+    async def _perform_auth_login(self):
+        """Perform pre-crawl authentication via form login or raw cookies."""
+        auth_cookies_str = self.config.get('auth_cookies', '')
+        auth_login_url = self.config.get('auth_login_url', '')
+
+        # Option 1: raw cookie string — parse and return directly
+        if auth_cookies_str:
+            cookies = []
+            try:
+                parsed = urlparse(self.base_url)
+            except ValueError:
+                return []
+            for cookie_str in auth_cookies_str.split(';'):
+                cookie_str = cookie_str.strip()
+                if '=' in cookie_str:
+                    name, value = cookie_str.split('=', 1)
+                    cookies.append({
+                        'name': name.strip(),
+                        'value': value.strip(),
+                        'domain': parsed.netloc,
+                        'path': '/'
+                    })
+            print(f"Auth: {len(cookies)} cookies parsed from raw string")
+            return cookies
+
+        # Option 2: form login
+        if not auth_login_url:
+            return []
+        auth_username = self.config.get('auth_username', '')
+        auth_password = self.config.get('auth_password', '')
+        if not auth_username or not auth_password:
+            return []
+
+        username_sel = self.config.get('auth_username_selector', 'input[name="username"], input[type="email"]')
+        password_sel = self.config.get('auth_password_selector', 'input[name="password"], input[type="password"]')
+        submit_sel = self.config.get('auth_submit_selector', 'button[type="submit"]')
+
+        from playwright.async_api import async_playwright
+        pw = await async_playwright().start()
+        try:
+            browser = await pw.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            await page.goto(auth_login_url, wait_until='domcontentloaded', timeout=30000)
+            await page.locator(username_sel).first.fill(auth_username, timeout=10000)
+            await page.locator(password_sel).first.fill(auth_password, timeout=10000)
+            await page.locator(submit_sel).first.click(timeout=10000)
+            await page.wait_for_load_state('domcontentloaded', timeout=15000)
+            await page.wait_for_timeout(2000)
+
+            cookies = await context.cookies()
+            print(f"Auth login successful: {len(cookies)} cookies captured from {auth_login_url}")
+            await browser.close()
+            return cookies
+        except Exception as e:
+            print(f"Auth login failed: {e}")
+            return []
+        finally:
+            await pw.stop()
+
+    def _apply_auth_cookies(self, cookies):
+        """Apply auth cookies to HTTP session and store for JS renderers."""
+        self._auth_cookies = cookies
+        # Inject into requests.Session for HTTP-mode crawling
+        for c in cookies:
+            self.session.cookies.set(c['name'], c['value'], domain=c.get('domain', ''), path=c.get('path', '/'))
+        print(f"Auth cookies applied to HTTP session ({len(cookies)} cookies)")
+
+    def _discover_asset_metadata(self):
+        """Send HEAD requests to discovered non-HTML assets for metadata."""
+        if not self.link_manager:
+            return
+        assets = self.link_manager.get_assets()
+        if not assets:
+            return
+
+        print(f"Fetching metadata for {len(assets)} discovered assets...")
+        for asset in assets:
+            if not self.is_running:
+                break
+            try:
+                resp = self.session.head(asset['url'], timeout=10, allow_redirects=True)
+                asset['status'] = resp.status_code
+                asset['content_type'] = resp.headers.get('content-type', '').split(';')[0]
+                cl = resp.headers.get('content-length')
+                asset['size'] = int(cl) if cl else None
+            except Exception:
+                asset['status'] = 0
+            # Write back to link_manager
+            with self.link_manager.assets_lock:
+                if asset['url'] in self.link_manager.discovered_assets:
+                    self.link_manager.discovered_assets[asset['url']].update({
+                        'status': asset['status'],
+                        'content_type': asset.get('content_type'),
+                        'size': asset.get('size'),
+                    })
+        print(f"Asset metadata complete for {len(assets)} assets")
+
     def _crawl_worker(self):
         """Main crawling worker with smooth rate limiting"""
+        # Pre-crawl authentication
+        if self.config.get('auth_login_url') or self.config.get('auth_cookies'):
+            cookies = asyncio.run(self._perform_auth_login())
+            if cookies:
+                self._apply_auth_cookies(cookies)
+
         # Discover sitemaps first (runs in this thread, not the HTTP request thread)
         if self._pending_sitemap_url and self.config.get('discover_sitemaps', True):
             url = self._pending_sitemap_url
@@ -950,17 +1057,15 @@ class WebCrawler:
                             try:
                                 result = future.result()
                                 if result:
-                                    # Auto-backoff on 429s
-                                    if result.get('status_code') == 429:
-                                        self._consecutive_429s = getattr(self, '_consecutive_429s', 0) + 1
-                                        if self._consecutive_429s >= 3:
-                                            old_delay = self.config['delay']
-                                            self.config['delay'] = min(old_delay * 2, 10)
-                                            if self.rate_limiter:
-                                                self.rate_limiter.rate = 1.0 / self.config['delay']
-                                            print(f"429 backoff: delay {old_delay}s → {self.config['delay']}s (after {self._consecutive_429s} consecutive 429s)")
-                                    else:
-                                        self._consecutive_429s = 0
+                                    # Adaptive rate limiting
+                                    sc = result.get('status_code', 0)
+                                    if sc in (403, 429, 503) and self.rate_limiter:
+                                        action = self.rate_limiter.report_block()
+                                        if action != 'watching':
+                                            stats = self.rate_limiter.get_backoff_stats()
+                                            print(f"Rate limit {action}: delay now {stats['current_delay']}s (after {stats['consecutive_blocks']} consecutive blocks)")
+                                    elif sc == 200 and self.rate_limiter:
+                                        self.rate_limiter.report_success()
 
                                     with self.results_lock:
                                         self.crawl_results.append(result)
@@ -1033,6 +1138,9 @@ class WebCrawler:
             # Update all linked_from fields before completing
             self._update_all_linked_from()
 
+            # Fetch metadata for discovered non-HTML assets
+            self._discover_asset_metadata()
+
             # Run duplication detection on all crawled content (skip in linkgraph mode)
             if self.issue_detector and self.config.get('enable_duplication_check', True) and not self.linkgraph_mode:
                 print("Running duplication detection...")
@@ -1092,15 +1200,41 @@ class WebCrawler:
                 except:
                     pass  # Continue if HEAD request fails
 
-            # Fetch the page with retries
+            # Fetch the page with retries — capture redirects
             response = None
+            redirect_chain = []
+            initial_status = None
             for attempt in range(retries + 1):
                 try:
+                    # First request: don't follow redirects to capture initial status
                     response = self.session.get(
                         url,
                         timeout=self.config['timeout'],
-                        allow_redirects=self.config['follow_redirects']
+                        allow_redirects=False
                     )
+                    initial_status = response.status_code
+
+                    # Follow redirect chain manually (max 10 hops)
+                    if self.config['follow_redirects'] and response.status_code in (301, 302, 303, 307, 308):
+                        current_url = url
+                        for _ in range(10):
+                            location = response.headers.get('Location', '')
+                            if not location:
+                                break
+                            next_url = urljoin(current_url, location)
+                            redirect_chain.append({
+                                'from': current_url,
+                                'to': next_url,
+                                'status': response.status_code
+                            })
+                            current_url = next_url
+                            response = self.session.get(
+                                current_url,
+                                timeout=self.config['timeout'],
+                                allow_redirects=False
+                            )
+                            if response.status_code not in (301, 302, 303, 307, 308):
+                                break
                     break
                 except Exception as e:
                     if attempt >= retries:
@@ -1110,10 +1244,14 @@ class WebCrawler:
             # Determine if URL is internal
             is_internal = self.link_manager.is_internal(url)
 
+            # Use initial status (301/302) for the result, not the final 200
+            reported_status = initial_status if initial_status else response.status_code
+
             # Create result structure
             result = {
                 'url': url,
-                'status_code': response.status_code,
+                'status_code': reported_status,
+                'redirect_url': redirect_chain[-1]['to'] if redirect_chain else None,
                 'content_type': response.headers.get('content-type', '').split(';')[0],
                 'size': len(response.content),
                 'is_internal': is_internal,
@@ -1150,34 +1288,47 @@ class WebCrawler:
                 'external_links': 0,
                 'internal_links': 0,
                 'response_time': 0,
-                'redirects': [],
+                'redirects': redirect_chain,
                 'hreflang': [],
                 'schema_org': [],
                 'linked_from': []
             }
 
-            # Stealth fallback: retry with CamoFox on bot-blocked responses
+            # Fallback for blocked responses (403/429/503)
+            # If Bright Data key is configured → retry with BD (fast, reliable)
+            # If no BD key → skip blocked page and continue crawling
             if result['status_code'] in (403, 429, 503):
-                try:
-                    if not self.camoufox_renderer:
-                        from src.core.camoufox_renderer import CamoFoxRenderer
-                        self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
-                    original_status = result['status_code']
-                    stealth_content, stealth_status = asyncio.run(
-                        self.camoufox_renderer.render_page(url)
-                    )
-                    result['status_code'] = stealth_status
-                    result['size'] = len(stealth_content.encode('utf-8'))
-                    result['javascript_rendered'] = True
-                    response = type('StealthResponse', (), {
-                        'status_code': stealth_status,
-                        'content': stealth_content.encode('utf-8'),
-                        'text': stealth_content,
-                        'headers': {'content-type': 'text/html'}
-                    })()
-                    print(f"Stealth retry: {url} ({original_status} -> {stealth_status})")
-                except Exception as e:
-                    print(f"Stealth retry failed for {url}: {e}")
+                original_status = result['status_code']
+                bd_api_key = self.config.get('brightdata_api_key', '')
+                bd_zone = self.config.get('brightdata_zone', 'web_unlocker1')
+
+                if bd_api_key:
+                    try:
+                        if not (hasattr(self, 'brightdata_renderer') and self.brightdata_renderer):
+                            from src.core.brightdata_renderer import BrightDataRenderer
+                            self.brightdata_renderer = BrightDataRenderer(bd_api_key, bd_zone)
+                            asyncio.run(self.brightdata_renderer.start())
+                        bd_content, bd_status = asyncio.run(
+                            self.brightdata_renderer.render_page(url, timeout=self.config.get('timeout', 30))
+                        )
+                        if bd_status == 200 and bd_content:
+                            result['status_code'] = bd_status
+                            result['size'] = len(bd_content.encode('utf-8'))
+                            result['javascript_rendered'] = True
+                            result['brightdata_rendered'] = True
+                            response = type('BDResponse', (), {
+                                'status_code': bd_status,
+                                'content': bd_content.encode('utf-8'),
+                                'text': bd_content,
+                                'headers': {'content-type': 'text/html'}
+                            })()
+                            print(f"Bright Data fallback: {url} ({original_status} -> {bd_status})")
+                        else:
+                            print(f"Bright Data returned {bd_status} for {url} — skipping")
+                    except Exception as e:
+                        print(f"Bright Data fallback failed for {url}: {e}")
+                else:
+                    print(f"Blocked ({original_status}) {url} — no Bright Data key, skipping")
 
             # Only parse HTML content
             if 'text/html' in response.headers.get('content-type', ''):
@@ -1258,6 +1409,9 @@ class WebCrawler:
                 if should_extract:
                     self.link_manager.extract_links(soup, url, depth + 1, self._should_crawl_url)
 
+            # Detect soft 404 (HTTP 200 but looks like an error page)
+            self.seo_extractor.detect_soft_404(result)
+
             # Populate linked_from after all link collection is complete
             result['linked_from'] = self.link_manager.get_source_pages(url)
             result['response_time'] = round((time.time() - start_time) * 1000, 2)
@@ -1277,6 +1431,8 @@ class WebCrawler:
     async def _crawl_url_with_javascript(self, url, depth):
         """Crawl a single URL using JavaScript rendering"""
         start_time = time.time()
+        js_urls = []
+        js_redirects = []
 
         try:
             # Use CamoFox if strategy says stealth, else Chromium
@@ -1285,15 +1441,15 @@ class WebCrawler:
                     url, timeout=self.config.get('js_timeout', 30))
                 error = 'BrightData timeout' if status_code == 0 else None
             elif hasattr(self, 'strategy') and self.strategy.should_use_stealth():
-                html_content, status_code = await self.camoufox_renderer.render_page(
+                html_content, status_code, js_redirects = await self.camoufox_renderer.render_page(
                     url,
                     wait_time=self.config.get('js_wait_time', 3),
                     timeout=self.config.get('js_timeout', 30)
                 )
                 error = None
             else:
-                # Render page with JavaScript (Chromium)
-                html_content, status_code, error = await self.js_renderer.render_page(url)
+                # Render page with JavaScript (Chromium) — includes JS URL discovery
+                html_content, status_code, error, js_urls, js_redirects = await self.js_renderer.render_page(url, base_domain=self.base_domain)
 
             if error:
                 return self.seo_extractor.create_empty_result(url, depth, status_code, error)
@@ -1341,12 +1497,17 @@ class WebCrawler:
                 'external_links': 0,
                 'internal_links': 0,
                 'response_time': 0,
-                'redirects': [],
+                'redirects': js_redirects,
                 'hreflang': [],
                 'schema_org': [],
                 'linked_from': [],
                 'javascript_rendered': True
             }
+
+            # Use initial redirect status code if we have a redirect chain
+            if js_redirects:
+                result['status_code'] = js_redirects[0]['status']
+                result['redirect_url'] = js_redirects[-1]['to']
 
             # Preserve raw HTML for challenge detection (script tags stripped by extraction)
             result['_raw_html'] = html_content
@@ -1424,6 +1585,39 @@ class WebCrawler:
             if should_extract:
                 self.link_manager.extract_links(soup, url, depth + 1, self._should_crawl_url)
 
+            # Feed JS-discovered URLs into crawl queue
+            if js_urls and is_internal:
+                added = 0
+                for js_url in js_urls:
+                    if self._should_crawl_url(js_url):
+                        self.link_manager.add_url(js_url, depth + 1)
+                        added += 1
+                if added:
+                    self.stats['js_discovered'] = self.stats.get('js_discovered', 0) + added
+
+            # JS Pagination discovery (Chromium only — needs live page)
+            if (self.config.get('enable_pagination_discovery') and is_internal
+                    and self.js_renderer and self.js_renderer.page_pool):
+                try:
+                    page = await self.js_renderer.get_page()
+                    if page:
+                        try:
+                            await page.goto(url, wait_until='domcontentloaded',
+                                            timeout=self.config.get('js_timeout', 30) * 1000)
+                            await page.wait_for_timeout(self.config.get('js_wait_time', 3) * 1000)
+                            max_pages = self.config.get('pagination_max_pages', 50)
+                            paginated_urls = await self.js_renderer.discover_pagination(page, self.base_domain, max_pages)
+                            for purl in paginated_urls:
+                                if self._should_crawl_url(purl):
+                                    self.link_manager.add_url(purl, depth + 1)
+                        finally:
+                            await self.js_renderer.return_page(page)
+                except Exception as e:
+                    print(f"Pagination discovery error for {url}: {e}")
+
+            # Detect soft 404 (HTTP 200 but looks like an error page)
+            self.seo_extractor.detect_soft_404(result)
+
             # Populate linked_from after all link collection is complete
             result['linked_from'] = self.link_manager.get_source_pages(url)
             result['response_time'] = round((time.time() - start_time) * 1000, 2)
@@ -1478,11 +1672,18 @@ class WebCrawler:
                 await self.brightdata_renderer.start()
             elif self.strategy.strategy == 'force_stealth':
                 from src.core.camoufox_renderer import CamoFoxRenderer
-                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'), enable_scroll=self.config.get('enable_scroll_before_extract', False))
                 await self.camoufox_renderer.start()
             else:
                 # Smart and Force Fast: start with Chromium
                 await self.js_renderer.initialize()
+
+            # Apply auth cookies to JS renderer contexts
+            if hasattr(self, '_auth_cookies') and self._auth_cookies:
+                if self.js_renderer and self.js_renderer.page_pool:
+                    await self.js_renderer.set_auth_cookies(self._auth_cookies)
+                if self.camoufox_renderer:
+                    await self.camoufox_renderer.set_auth_cookies(self._auth_cookies)
 
             max_workers = self.strategy.get_concurrency()
             active_tasks = set()
@@ -1536,18 +1737,22 @@ class WebCrawler:
 
                                             if not self.camoufox_renderer:
                                                 from src.core.camoufox_renderer import CamoFoxRenderer
-                                                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'))
+                                                self.camoufox_renderer = CamoFoxRenderer(proxy_url=self.config.get('proxy_url'), enable_scroll=self.config.get('enable_scroll_before_extract', False))
                                                 await self.camoufox_renderer.start()
 
                                             if action == 'escalated':
                                                 max_workers = 1
 
                                             try:
-                                                html_content, status_code = await self.camoufox_renderer.render_page(
+                                                html_content, status_code, stealth_redirects = await self.camoufox_renderer.render_page(
                                                     blocked_url,
                                                     wait_time=self.config.get('js_wait_time', 3),
                                                     timeout=self.config.get('js_timeout', 30))
                                                 result['status_code'] = status_code
+                                                if stealth_redirects:
+                                                    result['redirects'] = stealth_redirects
+                                                    result['status_code'] = stealth_redirects[0]['status']
+                                                    result['redirect_url'] = stealth_redirects[-1]['to']
                                                 result['size'] = len(html_content.encode('utf-8'))
                                                 result['javascript_rendered'] = True
                                                 result['_raw_html'] = html_content

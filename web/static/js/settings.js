@@ -61,9 +61,28 @@ let defaultSettings = {
     brightdataZone: 'web_unlocker1',
     brightdataAutoFallback: true,
 
+    // Scroll / lazy content
+    enableScrollBeforeExtract: false,
+
+    // Subdomain crawling
+    includeSubdomains: false,
+
+    // Pagination discovery
+    enablePaginationDiscovery: false,
+    paginationMaxPages: 50,
+
     // Stealth browser settings
     stealthMode: false,
     crawlStrategy: 'smart',
+
+    // Authentication settings
+    authLoginUrl: '',
+    authUsernameSelector: 'input[name="username"], input[type="email"]',
+    authPasswordSelector: 'input[name="password"], input[type="password"]',
+    authSubmitSelector: 'button[type="submit"]',
+    authUsername: '',
+    authPassword: '',
+    authCookies: '',
 
     // Custom CSS styling
     customCSS: '',
@@ -468,8 +487,8 @@ function populateSettingsForm() {
     const enableJavaScript = currentSettings.enableJavaScript;
     const jsSettingsGroups = [
         'jsSettings', 'jsTimeoutGroup', 'jsBrowserGroup', 'jsHeadlessGroup',
-        'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsWarning',
-        'brightdataSettings'
+        'jsUserAgentGroup', 'jsViewportGroup', 'jsConcurrencyGroup', 'jsScrollGroup', 'jsPaginationGroup',
+        'jsWarning', 'brightdataSettings'
     ];
 
     jsSettingsGroups.forEach(groupId => {
@@ -504,7 +523,12 @@ function collectSettingsFromForm() {
         'exportFormat', 'concurrency', 'memoryLimit', 'logLevel', 'saveSession',
         'enableProxy', 'proxyUrl', 'customHeaders',
         'enableJavaScript', 'jsWaitTime', 'jsTimeout', 'jsBrowser', 'jsHeadless', 'jsUserAgent', 'jsViewportWidth', 'jsViewportHeight', 'jsMaxConcurrentPages',
+        'enableScrollBeforeExtract',
+        'includeSubdomains',
+        'enablePaginationDiscovery', 'paginationMaxPages',
         'brightdataApiKey', 'brightdataZone', 'brightdataAutoFallback',
+        'authLoginUrl', 'authUsernameSelector', 'authPasswordSelector', 'authSubmitSelector',
+        'authUsername', 'authPassword', 'authCookies',
         'customCSS', 'issueExclusionPatterns',
         'extractClaims'
     ];

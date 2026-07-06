@@ -1,7 +1,17 @@
 """Link management and extraction"""
+import os
 import threading
 from urllib.parse import urljoin, urlparse
 from collections import deque
+
+# Non-HTML asset extensions to track separately
+ASSET_EXTENSIONS = {
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.bmp', '.tiff',
+    '.mp3', '.mp4', '.avi', '.mov', '.wmv', '.webm', '.ogg', '.wav',
+    '.zip', '.rar', '.gz', '.tar', '.7z',
+    '.csv', '.json', '.xml',
+}
 
 SOCIAL_DOMAINS = frozenset([
     'facebook.com', 'twitter.com', 'x.com', 'linkedin.com', 'instagram.com',
@@ -42,8 +52,12 @@ PARENT_TAG_TO_BODY_DETAIL = {
 class LinkManager:
     """Manages link discovery, tracking, and extraction"""
 
-    def __init__(self, base_domain):
+    def __init__(self, base_domain, include_subdomains=False):
         self.base_domain = base_domain
+        self.include_subdomains = include_subdomains
+        # Extract root domain (e.g., example.com from www.example.com)
+        parts = base_domain.replace('www.', '', 1).split('.')
+        self.root_domain = '.'.join(parts[-2:]) if len(parts) >= 2 else base_domain
         self.visited_urls = set()
         self.discovered_urls = deque()
         self.all_discovered_urls = set()
@@ -51,8 +65,33 @@ class LinkManager:
         self.links_set = set()
         self.source_pages = {}  # Maps target_url -> list of source_urls
 
+        # Non-HTML asset tracking
+        self.discovered_assets = {}  # url -> {type, linked_from: []}
+        self.assets_lock = threading.Lock()
+
         self.urls_lock = threading.Lock()
         self.links_lock = threading.Lock()
+
+    def add_asset(self, url, source_url):
+        """Register a non-HTML asset URL discovered during link extraction."""
+        with self.assets_lock:
+            if url not in self.discovered_assets:
+                ext = os.path.splitext(urlparse(url).path)[1].lower()
+                self.discovered_assets[url] = {
+                    'url': url,
+                    'type': ext.lstrip('.') if ext else 'unknown',
+                    'linked_from': [source_url],
+                    'status': None,
+                    'size': None,
+                    'content_type': None,
+                }
+            elif source_url not in self.discovered_assets[url]['linked_from']:
+                self.discovered_assets[url]['linked_from'].append(source_url)
+
+    def get_assets(self):
+        """Return list of discovered assets."""
+        with self.assets_lock:
+            return list(self.discovered_assets.values())
 
     def extract_links(self, soup, current_url, depth, should_crawl_callback):
         """Extract links from HTML and add to discovery queue"""
@@ -82,6 +121,12 @@ class LinkManager:
                     self.source_pages[clean_url] = []
                 if current_url not in self.source_pages[clean_url]:
                     self.source_pages[clean_url].append(current_url)
+
+                # Check if this is a non-HTML asset
+                ext = os.path.splitext(parsed.path)[1].lower()
+                if ext in ASSET_EXTENSIONS:
+                    self.add_asset(clean_url, current_url)
+                    continue
 
                 if (clean_url not in self.visited_urls and
                     clean_url not in self.all_discovered_urls and
@@ -575,11 +620,22 @@ class LinkManager:
                 continue
 
     def is_internal(self, url):
-        """Check if URL is internal to the base domain"""
-        parsed_url = urlparse(url)
+        """Check if URL is internal to the base domain (or any subdomain if enabled)"""
+        try:
+            parsed_url = urlparse(url)
+        except ValueError:
+            return False
         url_domain_clean = parsed_url.netloc.replace('www.', '', 1)
         base_domain_clean = self.base_domain.replace('www.', '', 1)
-        return url_domain_clean == base_domain_clean
+
+        if url_domain_clean == base_domain_clean:
+            return True
+
+        # Subdomain check: blog.example.com is internal to www.example.com
+        if self.include_subdomains:
+            return url_domain_clean.endswith('.' + self.root_domain) or url_domain_clean == self.root_domain
+
+        return False
 
     def add_url(self, url, depth):
         """Add a URL to the discovery queue"""
@@ -636,3 +692,6 @@ class LinkManager:
         with self.links_lock:
             self.all_links.clear()
             self.links_set.clear()
+
+        with self.assets_lock:
+            self.discovered_assets.clear()

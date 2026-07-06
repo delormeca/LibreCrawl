@@ -48,6 +48,13 @@ class SettingsManager:
             # Stealth tab
             'stealthMode',
             'crawlStrategy',
+            # Scroll / Subdomain / Pagination
+            'enableScrollBeforeExtract',
+            'includeSubdomains',
+            'enablePaginationDiscovery', 'paginationMaxPages',
+            # Authentication tab
+            'authLoginUrl', 'authUsernameSelector', 'authPasswordSelector',
+            'authSubmitSelector', 'authUsername', 'authPassword', 'authCookies',
             # Custom CSS tab
             'customCSS'
         ]
@@ -138,6 +145,25 @@ class SettingsManager:
 
             # Crawl strategy (replaces stealthMode)
             'crawlStrategy': 'smart',  # 'smart', 'force_stealth', 'force_fast'
+
+            # Scroll / lazy content
+            'enableScrollBeforeExtract': False,
+
+            # Subdomain crawling
+            'includeSubdomains': False,
+
+            # Pagination discovery
+            'enablePaginationDiscovery': False,
+            'paginationMaxPages': 50,
+
+            # Authentication settings
+            'authLoginUrl': '',
+            'authUsernameSelector': 'input[name="username"], input[type="email"]',
+            'authPasswordSelector': 'input[name="password"], input[type="password"]',
+            'authSubmitSelector': 'button[type="submit"]',
+            'authUsername': '',
+            'authPassword': '',
+            'authCookies': '',
 
             # Custom CSS styling
             'customCSS': '',
@@ -537,6 +563,21 @@ class SettingsManager:
             'crawl_strategy': settings.get('crawlStrategy') or 'smart',
             # Backward compat: stealth_mode driven purely by crawl_strategy now
             'stealth_mode': (settings.get('crawlStrategy') or 'smart') == 'force_stealth',
+            # Scroll / lazy content
+            'enable_scroll_before_extract': settings.get('enableScrollBeforeExtract', False),
+            # Subdomain crawling
+            'include_subdomains': settings.get('includeSubdomains', False),
+            # Pagination discovery
+            'enable_pagination_discovery': settings.get('enablePaginationDiscovery', False),
+            'pagination_max_pages': settings.get('paginationMaxPages', 50),
+            # Authentication
+            'auth_login_url': settings.get('authLoginUrl', ''),
+            'auth_username_selector': settings.get('authUsernameSelector', 'input[name="username"], input[type="email"]'),
+            'auth_password_selector': settings.get('authPasswordSelector', 'input[name="password"], input[type="password"]'),
+            'auth_submit_selector': settings.get('authSubmitSelector', 'button[type="submit"]'),
+            'auth_username': settings.get('authUsername', ''),
+            'auth_password': settings.get('authPassword', ''),
+            'auth_cookies': settings.get('authCookies', ''),
         }
 
     def _parse_custom_headers(self, headers_text):
