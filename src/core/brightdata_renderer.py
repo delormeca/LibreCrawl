@@ -49,7 +49,7 @@ class BrightDataRenderer:
                     "zone": self.zone,
                     "url": url,
                     "format": "raw",
-                    "render": True
+                    "render": False
                 },
                 timeout=max(timeout, 60) + 15
             )
