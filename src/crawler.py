@@ -386,14 +386,16 @@ class WebCrawler:
         self.sitemap_url_count = 0
 
     def _discover_and_add_sitemap_urls(self, base_url, extra_urls=None):
-        """Discover sitemaps and add URLs to crawl queue"""
+        """Discover sitemaps and add URLs to crawl queue.
+        Sitemap URLs bypass _should_crawl_url — the site owner listed them explicitly.
+        Only external domains are rejected."""
         sitemap_urls = self.sitemap_parser.discover_sitemaps(base_url, extra_urls=extra_urls)
 
         added_count = 0
         filtered_count = 0
 
         for url in sitemap_urls:
-            if self._should_crawl_url(url):
+            if self.link_manager.is_internal(url):
                 self.link_manager.add_url(url, 0)
                 added_count += 1
             else:

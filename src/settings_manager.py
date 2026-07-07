@@ -101,7 +101,7 @@ class SettingsManager:
             'googleApiKey': '',
 
             # Filter settings
-            'includeExtensions': 'html,htm,php,asp,aspx,jsp',
+            'includeExtensions': '',
             'excludeExtensions': 'pdf,doc,docx,zip,exe,dmg',
             'includePatterns': '',
             'excludePatterns': '',
