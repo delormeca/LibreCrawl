@@ -67,9 +67,15 @@ class IncrementalPoller {
             this.memory = data.memory || this.memory;
             this.memoryData = data.memory_data || this.memoryData;
 
-            // Accumulate new data
+            // Accumulate new data (dedup by URL)
             if (data.urls && data.urls.length > 0) {
-                this.allUrls.push(...data.urls);
+                const existingUrls = new Set(this.allUrls.map(u => u.url));
+                for (const u of data.urls) {
+                    if (!existingUrls.has(u.url)) {
+                        this.allUrls.push(u);
+                        existingUrls.add(u.url);
+                    }
+                }
                 this.lastUrlCount = this.allUrls.length;
             }
 
