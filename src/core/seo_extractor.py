@@ -11,6 +11,55 @@ from bs4 import BeautifulSoup, Comment
 class SEOExtractor:
     """Extracts SEO-related data from HTML content"""
 
+    # Common soft 404 signals in title/h1/body
+    _SOFT_404_PATTERNS = [
+        'page not found', 'not found', '404', 'page introuvable',
+        'page inexistante', 'cette page n\'existe', 'does not exist',
+        'no longer available', 'n\'est plus disponible', 'couldn\'t find',
+        'we can\'t find', 'nothing here', 'oops', 'erreur 404',
+        'page manquante', 'page supprimée',
+    ]
+
+    @staticmethod
+    def detect_soft_404(result):
+        """
+        Detect soft 404 pages — pages that return HTTP 200 but look like error pages.
+        Sets result['soft_404'] = True and adds to issues if detected.
+        """
+        if result.get('status_code') != 200:
+            return
+
+        title = (result.get('title') or '').lower()
+        h1 = (result.get('h1') or '').lower()
+        body_text = (result.get('body_text') or '').lower()
+        word_count = result.get('word_count', 0)
+
+        signals = 0
+
+        # Check title and h1 for 404 patterns
+        for pattern in SEOExtractor._SOFT_404_PATTERNS:
+            if pattern in title:
+                signals += 2
+                break
+        for pattern in SEOExtractor._SOFT_404_PATTERNS:
+            if pattern in h1:
+                signals += 2
+                break
+
+        # Very thin content is suspicious (but only combined with other signals)
+        if word_count < 50:
+            signals += 1
+
+        # Check body for 404 patterns (weaker signal — needs title/h1 to confirm)
+        if signals > 0:
+            for pattern in SEOExtractor._SOFT_404_PATTERNS:
+                if pattern in body_text[:500]:
+                    signals += 1
+                    break
+
+        if signals >= 2:
+            result['soft_404'] = True
+
     @staticmethod
     def extract_basic_seo_data(soup, result):
         """Extract basic SEO data (title, headings, meta description, etc.)"""

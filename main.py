@@ -702,6 +702,7 @@ def auto_config():
                           'cf-browser-verification', '_cf_chl_opt',
                           'vercel security checkpoint',
                           "we're verifying your browser",
+                          'verifying your connection',
                           'challenge-platform']
         block_sigs = ['sorry, you have been blocked', 'you are unable to access',
                       'attention required']
@@ -805,8 +806,15 @@ def auto_config():
     # Apply protection-specific overrides (detection ran earlier, before recommended was built)
     protection = result.get('protection')
     if protection == 'challenge':
-        recommended['crawlStrategy'] = 'smart'
-        recommended['enableJavaScript'] = True
+        if bd_available:
+            recommended['crawlStrategy'] = 'force_fast'
+            recommended['enableJavaScript'] = True
+            recommended['jsBrowser'] = 'brightdata'
+            recommended['enableProxy'] = False
+            result['reasons'].append('Bright Data recommended — solves Cloudflare challenges automatically')
+        else:
+            recommended['crawlStrategy'] = 'smart'
+            recommended['enableJavaScript'] = True
     elif protection == 'waf_block':
         if bd_available:
             recommended['crawlStrategy'] = 'force_fast'

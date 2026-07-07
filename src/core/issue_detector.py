@@ -34,6 +34,8 @@ class IssueDetector:
         self._check_structured_data_issues(result, issues)
         self._check_performance_issues(result, issues)
         self._check_indexability_issues(result, issues)
+        self._check_soft_404(result, issues)
+        self._check_redirect_issues(result, issues)
 
         # Add all detected issues
         with self.issues_lock:
@@ -442,6 +444,58 @@ class IssueDetector:
                 return True
 
         return False
+
+    def _check_soft_404(self, result, issues):
+        """Flag pages detected as soft 404s by SEOExtractor"""
+        if result.get('soft_404'):
+            issues.append({
+                'url': result.get('url', ''),
+                'type': 'error',
+                'category': 'Technical',
+                'issue': 'Soft 404 Detected',
+                'details': f"Page returns HTTP 200 but content indicates a 404 error page (title: \"{result.get('title', '')[:60]}\")"
+            })
+
+    def _check_redirect_issues(self, result, issues):
+        """Flag redirect chain issues"""
+        url = result.get('url', '')
+        redirects = result.get('redirects', [])
+        status = result.get('status_code', 0)
+
+        if not redirects:
+            return
+
+        # Redirect chain too long (3+ hops)
+        if len(redirects) >= 3:
+            issues.append({
+                'url': url,
+                'type': 'warning',
+                'category': 'Technical',
+                'issue': 'Long Redirect Chain',
+                'details': f"{len(redirects)} redirects: {' → '.join(r['from'].split('//')[1][:40] for r in redirects)} → {redirects[-1]['to'].split('//')[1][:40]}"
+            })
+
+        # Temporary redirect (302/307) — should usually be 301
+        if status in (302, 307):
+            issues.append({
+                'url': url,
+                'type': 'warning',
+                'category': 'SEO',
+                'issue': 'Temporary Redirect',
+                'details': f"HTTP {status} → {result.get('redirect_url', '?')}. Consider using 301 if this is permanent."
+            })
+
+        # HTTP to HTTPS redirect
+        for r in redirects:
+            if r['from'].startswith('http://') and r['to'].startswith('https://'):
+                issues.append({
+                    'url': url,
+                    'type': 'info',
+                    'category': 'Technical',
+                    'issue': 'HTTP to HTTPS Redirect',
+                    'details': f"{r['from']} → {r['to']}"
+                })
+                break
 
     def _get_status_code_message(self, status_code):
         """Get descriptive message for HTTP status codes"""
